@@ -8,18 +8,15 @@
 
 # How to run
 
-- clone the repo:
-  ```
-  git clone git@github.com:tatinCode/cosby.git
-  ```
+# 1. Clone the repo
+git clone https://github.com/<your-username>/cosby.git
+cd cosby
 
-- then run
-  ```
-  cmake -B build
-  cmake --build build
-  ```
+# 2. Configure the project
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-- to open the program
-  ```
-  ./build/cosby
-  ```
+# 3. Build
+cmake --build build -j$(nproc)
+
+# 4. Run
+./build/cosby
