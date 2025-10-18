@@ -8,15 +8,30 @@
 
 # How to run
 
-# 1. Clone the repo
-git clone https://github.com/<your-username>/cosby.git
-cd cosby
+dependecies needed:
+```
+qt6-base
+qt6-multimedia
+qt6-declarative
+```
 
-# 2. Configure the project
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+## 1. Clone the repo
+    ```
+    git clone https://github.com/<your-username>/cosby.git
+    cd cosby
+    ```
 
-# 3. Build
-cmake --build build -j$(nproc)
+## 2. Configure the project
+    ```
+    cmake -B build
+    ```
 
-# 4. Run
-./build/cosby
+## 3. Build
+    ```
+    cmake --build build
+    ```
+
+## 4. Run
+    ```
+    ./build/cosby
+    ```
