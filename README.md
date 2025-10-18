@@ -28,7 +28,7 @@ qt6-declarative
 
 ## 3. Build
     ```
-        cmake --build build
+    cmake --build build
     ```
 
 ## 4. Run
