@@ -1,0 +1,14 @@
+# .clangd
+CompileFlags:
+  # If you did NOT symlink compile_commands.json to the root, uncomment:
+  Add:
+    - -I/usr/include/qt6
+    - -I/usr/include/qt6/QtCore
+    - -I/usr/include/qt6/QtGui
+    - -I/usr/include/qt6/QtWidgets
+    # CompilationDatabase: build
+  Clangd:
+    QueryDriver:
+      - /usr/bin/clang++
+      - /usr/bin/g++
+
