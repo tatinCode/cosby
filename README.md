@@ -8,18 +8,30 @@
 
 # How to run
 
-- clone the repo:
-  ```
-  git clone git@github.com:tatinCode/cosby.git
-  ```
+dependecies needed:
+```
+qt6-base
+qt6-multimedia
+qt6-declarative
+```
 
-- then run
-  ```
-  cmake -B build
-  cmake --build build
-  ```
+## 1. Clone the repo
+    
+    git clone https://github.com/<your-username>/cosby.git
+    cd cosby
+    
 
-- to open the program
-  ```
-  ./build/cosby
-  ```
+## 2. Configure the project
+    
+    cmake -B build
+    
+
+## 3. Build
+    
+    cmake --build build
+    
+
+## 4. Run
+    
+    ./build/cosby
+    
