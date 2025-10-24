@@ -2,12 +2,15 @@
 #include "timeline_view.h"
 #include "preview_widget.h"
 #include "script_host.h"
+#include "menus.h"
+#include "app_actions.h"
 
 #include <QDockWidget>
 #include <QToolBar>
 #include <QComboBox>
 #include <QPlainTextEdit>
 #include <QTimer>
+#include <QMessageBox>
 #include <QStatusBar>
 
 MainWindow::MainWindow(QWidget* parent):
@@ -21,7 +24,10 @@ MainWindow::MainWindow(QWidget* parent):
 
     //center: preview
     setCentralWidget(m_preview);
-//bottom: timeline
+
+    m_actions = new AppActions(this);
+
+    //bottom: timeline
     auto* dock_timeline = new QDockWidget(tr("Timeline"), this);
     dock_timeline->setWidget(m_timeline);
     addDockWidget(Qt::BottomDockWidgetArea, dock_timeline);
@@ -32,10 +38,13 @@ MainWindow::MainWindow(QWidget* parent):
     addDockWidget(Qt::RightDockWidgetArea, dock_code);
 
     //toolbar
-    auto* tb = addToolBar("Transport");
+    auto* tb = addToolBar("Project");
     m_act_play = tb->addAction("Play", this, &MainWindow::on_play);
     m_act_stop = tb->addAction("Stop", this, &MainWindow::on_stop);
     tb->addSeparator();
+    tb->addAction(m_actions->act_run);
+    tb->addAction(m_actions->act_build);
+    tb->addAction(m_actions->act_export);
 
     //beat division selector
     auto* division_box = new QComboBox(tb);
@@ -52,6 +61,9 @@ MainWindow::MainWindow(QWidget* parent):
     connect(m_timeline, &TimelineView::requestSeek, m_preview, &PreviewWidget::seekMs);
     connect(m_preview, &PreviewWidget::timeChanged, m_timeline, &TimelineView::setPlayheadMs);
 
+    create_menus();
+    m_actions->connect_slots(this);
+
     QStatusBar().showMessage("Ready");
 
     //seed example script
@@ -63,6 +75,7 @@ MainWindow::MainWindow(QWidget* parent):
             "   addSprite('sprite.png', c * 250);\n"
             "}\n"
             );
+
 }
 
 MainWindow::~MainWindow() = default;
@@ -82,10 +95,45 @@ void MainWindow::on_division_changed(int idx){
     m_timeline->setSubdivision(divs[idx]);
 }
 
+/**
+ * fucntions for menu bar below
+ */
+//file
+void MainWindow::create_menus(){
+    Menus::build(menuBar(), m_actions);
+}
 
+void MainWindow::on_new_project(){
+
+}
+
+void MainWindow::on_open_project(){
+
+}
+
+void MainWindow::on_save_project(){
+
+}
+
+//project tab
 void MainWindow::on_run_script(){
     auto result = m_script->run(m_code->toPlainText());
     QStatusBar().showMessage(result, 3000);
-    
+
     // TODO: pull scene graph from ScriptHost and feed to Preview/Timeline
 }
+
+void MainWindow::on_build_json(){
+
+}
+
+void MainWindow::on_export_osb(){
+
+}
+
+//about tab
+void MainWindow::on_about(){
+    QMessageBox::about(this, "About cosby",
+            "cosby storyboard editor\nC++, JSON-based pipeline");
+}
+
