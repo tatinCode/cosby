@@ -4,7 +4,7 @@
 int main(int argc, char *argv[]){
     QApplication app(argc, argv);
 
-    QApplication::setApplicationName("cosb");
+    QApplication::setApplicationName("cosby");
     QApplication::setOrganizationName("tatinCode");
 
     MainWindow w;
