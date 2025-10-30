@@ -36,6 +36,45 @@ qt6-declarative
     ./build/cosby
 
 ### Project Structure
+
+```
+cosby/
+├─ CMakeLists.txt
+├─ include/
+│  ├─ core/
+│  ├─ scripting/
+│  ├─ ui/
+│  └─ main_window.h
+│
+├─ src/
+│  ├─ core/
+│  ├─ scripting/
+│  ├─ ui/
+│  ├─ main.cpp
+│  ├─ main_window.cpp
+│  └─ app_actions.cpp
+│
+├─ scripts/
+│  ├─ core/           <---- JS library
+|  |   └─ effects/     <---- For some ffects, maybe??
+|  |
+│  ├─ examples/       <---- just nice to have?
+│  └─ types/
+│       └─ cosby.d.ts <----  might add for typeScript definitions for monaco??
+│
+├─ resources/         <---- maybe monaco????
+│  ├─ editor/
+│  │   ├─ index.html
+│  │   ├─ app.js
+│  │   ├─ monaco/...
+│  │   └─ qwebchannel.js
+│  ├─ icons/
+│  └─ editor.qrc
+│
+└─ build/                 # cmake build output
+```
+
+<!---
 ```
 cosby/
   include/
@@ -44,3 +83,4 @@ cosby/
     core/ 
       effects/     <-----For some ffects, maybe??
 ```
+--->
