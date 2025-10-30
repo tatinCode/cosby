@@ -34,4 +34,13 @@ qt6-declarative
 ## 4. Run
     
     ./build/cosby
-    
+
+### Project Structure
+```
+cosby/
+  include/
+  src/
+  scripts/        <-----JS library
+    core/ 
+      effects/     <-----For some ffects, maybe??
+```
