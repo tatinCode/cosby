@@ -30,7 +30,7 @@ QString script_host::run(const QString& source){
     QJSValue res = eng_.evaluate(source, "<user_script>");
 
     if(res.isError()){
-        return QString("Error: %1 (line %2))
+        return QString("Error: %1 (line %2)")
             .arg(res.toString())
             .arg(res.property("lineNumber").toInt());
     }

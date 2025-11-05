@@ -5,6 +5,7 @@
 
 #include <QObject>
 #include <QJSEngine>
+#include <QJSValue>
 
 class script_host : public QObject{
     Q_OBJECT
@@ -20,8 +21,7 @@ class script_host : public QObject{
     private:
         QJSEngine eng_;
         scene sc_;
-        js_bridge* bridge_{}
-
+        js_bridge* bridge_{};
 };
 
 

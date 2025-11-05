@@ -8,9 +8,9 @@ QObject* js_bridge::add_sprite(const QString& path, const QString& layer,
     layer_t ly = to_layer(layer);
     origin_t orr = to_origin(origin);
 
-    sprite& s = sc_->add_sprite(path, ly, orr, x, y);
+    ::sprite& spr = sc_->add_sprite(path, ly, orr, x, y);
 
-    return new js_sprite_proxy(&s, eng_);
+    return new js_sprite_proxy(&spr, eng_);
 }
 
 QObject* js_bridge::sprite(const QString& path, const QJSValue& opts){
@@ -28,12 +28,16 @@ QObject* js_bridge::sprite(const QString& path, const QJSValue& opts){
             );
 }
 
-QObject* js_bridge::to_layer(const QString& s){
+layer_t js_bridge::to_layer(const QString& s){
     if(s.compare("Background", Qt::CaseInsensitive) == 0){
         return layer_t::background;
     }
 
-    if(s.compare("Pass", Qt::CaseINsensitive) == 0){
+    if(s.compare("Foreground", Qt::CaseInsensitive) == 0){
+        return layer_t::foreground;
+    }
+
+    if(s.compare("Pass", Qt::CaseInsensitive) == 0){
         return layer_t::pass;
     }
 
@@ -42,7 +46,7 @@ QObject* js_bridge::to_layer(const QString& s){
     }
 }
 
-QObject* js_bridge::to_origin(const Qstring& s){
+origin_t js_bridge::to_origin(const QString& s){
     if(s.compare("TopLeft", Qt::CaseInsensitive) == 0){
         return origin_t::top_left;
     }

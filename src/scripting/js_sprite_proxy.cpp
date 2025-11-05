@@ -1,4 +1,4 @@
-#include "scripting/js_proxy_proxy.h"
+#include "scripting/js_sprite_proxy.h"
 
 js_sprite_proxy* js_sprite_proxy::fade(const QString& easing, int t0, int t1,
         double a0, double a1){
