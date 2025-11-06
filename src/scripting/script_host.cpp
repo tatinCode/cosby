@@ -9,19 +9,26 @@ script_host::script_host(QObject* parent) : QObject(parent){
 
     //simple print() ???????
     //
-    auto print_fn = eng_.newFunction([](QJSContext*, QJSValueList args){
-            QString out;
+    //not very simple now lmaooo
+    auto* native = new NativeConsole(&eng_);
 
-            for(auto& v : args){
-                out += v.toString() + " ";
+    eng_.globalObject().setProperty("__native", eng_.newQObject(native));
+
+    eng_.evaluate(R"JS{
+            function print(){
+             var out = '';
+             for(var i = 0; i < arguments.length; ++i){
+               if(i){
+                   out += String(arguments[i]);
             }
+             __native.print(out);
+            }
+            
+            //console.* aliases:
+            var console = { log: print, warn: print, error: print };
+            }JS");
 
-            qInfo().noquote() << out.trimmed();
 
-            return QJSValue();
-            });
-
-    eng_.globalObject().setProperty("print", print_fn);
 }
 
 QString script_host::run(const QString& source){

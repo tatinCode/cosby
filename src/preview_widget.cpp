@@ -32,15 +32,7 @@ void PreviewWidget::stop(){
 void PreviewWidget::seekMs(qint64 ms){
     m_time_ms = ms;
 
-    /*
-    if(m_playing){
-        //m_clock.restart(), m_clock = QElapsedTimer(), m_clock().start();
-        m_clock.restart();
-    }
-    */
-
     emit timeChanged(m_time_ms);
-
     update();
 }
 

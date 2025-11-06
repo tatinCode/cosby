@@ -6,6 +6,18 @@
 #include <QObject>
 #include <QJSEngine>
 
+class NativeConsole : public QObject{
+    Q_OBJECT
+
+    public:
+        using QObject::QObject;
+        
+        Q_INVOKABLE void print(const QString& s){
+            qInfo().noquote() << s;
+        }
+};
+
+
 class js_bridge : public QObject{
     Q_OBJECT
 
