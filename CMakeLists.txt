@@ -12,15 +12,29 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 #recursively grabs the header files and cpp files
-file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS src/*.cpp)
-file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS include/*.h)
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS 
+    src/*.cpp
+    src/ui/*.cpp
+    src/core/*.cpp
+    src/scripting/*.cpp
+)
+
+file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS 
+    include/*.h
+    include/ui/*.h
+    include/core/*.h
+    include/scripting/*.h
+)
 
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    Qt6::Widgets Qt6::Gui Qt6::Multimedia Qt6::Qml
+    Qt6::Widgets 
+    Qt6::Gui 
+    Qt6::Multimedia 
+    Qt6::Qml
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
