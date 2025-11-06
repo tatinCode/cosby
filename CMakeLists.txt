@@ -19,12 +19,12 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
     src/scripting/*.cpp
 )
 
-#file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS 
-#    include/*.h
-#    include/ui/*.h
-#    include/core/*.h
-#    include/scripting/*.h
-#)
+file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS 
+    include/*.h
+    include/ui/*.h
+    include/core/*.h
+    include/scripting/*.h
+)
 
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES})
 

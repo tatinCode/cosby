@@ -14,19 +14,23 @@ script_host::script_host(QObject* parent) : QObject(parent){
 
     eng_.globalObject().setProperty("__native", eng_.newQObject(native));
 
-    eng_.evaluate(R"JS{
+    eng_.evaluate(
+            QStringLiteral(R"JS(
             function print(){
              var out = '';
              for(var i = 0; i < arguments.length; ++i){
                if(i){
-                   out += String(arguments[i]);
-            }
+                   out += '';
+                }
+                out += String(arguments[i]);
              __native.print(out);
             }
             
             //console.* aliases:
             var console = { log: print, warn: print, error: print };
-            }JS");
+            )JS"),
+            QStringLiteral("<bootstrap>")   //filename for error stacks
+            );
 
 
 }
