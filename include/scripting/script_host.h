@@ -13,7 +13,7 @@ class script_host : public QObject{
     public:
         explicit script_host(QObject* parent = nullptr);
 
-        QString run(const QString& source);
+        QString run(const QString& source, const QString& preload_source = QString());
         scene& current_scene() {
             return sc_;
         }

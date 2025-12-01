@@ -4,14 +4,14 @@
 #include <QVector>
 
 enum class layer_t {
-    background,
-    foreground,
-    pass,
-    fail
+    background, //0
+    foreground, //1
+    pass,   //2
+    fail    //3
 };
 
 enum class origin_t {
-    top_left,
+    top_left,   
     bottom_left,
     center,
 };

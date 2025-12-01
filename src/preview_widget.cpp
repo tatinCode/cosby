@@ -7,8 +7,7 @@
 PreviewWidget::PreviewWidget(QWidget* parent):
     QWidget(parent),
     m_playing(false),
-    m_time_ms(0)
-{
+    m_time_ms(0){
     setAutoFillBackground(false);
     connect(&m_tick, &QTimer::timeout, this, [this]{
             if(m_playing){

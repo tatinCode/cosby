@@ -1,7 +1,7 @@
 #include "main_window.h"
 #include "timeline_view.h"
 #include "preview_widget.h"
-#include "script_host.h"
+#include "scripting/script_host.h"
 #include "menus.h"
 #include "app_actions.h"
 
@@ -18,7 +18,7 @@ MainWindow::MainWindow(QWidget* parent):
     m_timeline(new TimelineView(this)),
     m_preview(new PreviewWidget(this)),
     m_code(new QPlainTextEdit(this)),
-    m_script(new ScriptHost(this))
+    m_script(new script_host(this))
 {
     setWindowTitle("cosby");
 
@@ -66,7 +66,14 @@ MainWindow::MainWindow(QWidget* parent):
 
     QStatusBar().showMessage("Ready");
 
+    m_script = new script_host(this);
+
+    connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
+
+    //m_project_root = QDir::currentPath();
+
     //seed example script
+    /*
     m_code->setPlainText(
             "//Example: build scene\n"
             "scene = [];\n"
@@ -75,7 +82,7 @@ MainWindow::MainWindow(QWidget* parent):
             "   addSprite('sprite.png', c * 250);\n"
             "}\n"
             );
-
+    */
 }
 
 MainWindow::~MainWindow() = default;
