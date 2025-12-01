@@ -47,10 +47,8 @@ class MainWindow : public QMainWindow {
         QString m_project_root;
 
         //preview
+        AppActions* m_actions = nullptr;
         PreviewWidget* m_preview = nullptr;
         QAction* m_act_play = nullptr;
         QAction* m_act_stop = nullptr;
-
-        //menu bar
-        AppActions* m_actions = nullptr;
 };

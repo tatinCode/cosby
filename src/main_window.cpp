@@ -12,6 +12,22 @@
 #include <QTimer>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QFile>
+#include <QTextStream>
+#include <QDir>
+
+static QString load_text_file(const QString& path){
+    QFile f(path);
+    
+    if(!f.open(QIODevice::ReadOnly | QIODevice::Text)){
+        return {};
+    }
+
+    QTextStream ts(&f);
+    ts.setCodec("UTF-8");
+    return ts.readAll();
+
+}
 
 MainWindow::MainWindow(QWidget* parent):
     QMainWindow(parent),
