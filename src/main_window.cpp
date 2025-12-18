@@ -26,7 +26,6 @@ static QString load_text_file(const QString& path){
     QTextStream ts(&f);
     ts.setCodec("UTF-8");
     return ts.readAll();
-
 }
 
 MainWindow::MainWindow(QWidget* parent):
