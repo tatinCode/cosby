@@ -1,6 +1,6 @@
 #include "main_window.h"
 #include "timeline_view.h"
-#include "preview_widget.h"
+#include "ui/preview_widget.h"
 #include "scripting/script_host.h"
 #include "menus.h"
 #include "app_actions.h"
@@ -24,7 +24,7 @@ static QString load_text_file(const QString& path){
     }
 
     QTextStream ts(&f);
-    ts.setCodec("UTF-8");
+
     return ts.readAll();
 }
 

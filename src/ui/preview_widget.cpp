@@ -1,4 +1,4 @@
-#include "preview_widget.h"
+#include "ui/preview_widget.h"
 #include "core/scene.h"
 #include "core/scene_player.h"
 
@@ -57,4 +57,5 @@ void PreviewWidget::paintEvent(QPaintEvent*){
     p.drawRect(rect().adjusted(10, 10, -10, -10));
     */
 }
+
 

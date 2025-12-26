@@ -23,13 +23,5 @@ namespace Menus{
         //help tab
         auto* help = bar->addMenu("&Help");
         help->addAction(a->act_about);
-
-        //run
-        auto* runMenu = menuBar()->addMenu(tr("&Run"));
-        runMenu->addAction(m_actions->act_run);
-
-        //toolbar
-        auto* tb = addToolBar(tr("Run"));
-        tb->addAction(m_actions->act_run);
     }
 }
