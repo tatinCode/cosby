@@ -10,7 +10,6 @@ enum class layer_t
     pass,       // 2
     fail,       // 3
     overlay     // 4
-
 };
 
 enum class origin_t
@@ -37,7 +36,7 @@ enum class cmd_t
     color,
     move_x,
     move_y,
-    scaleVec,
+    scale_vec,
     flip_h,
     flip_v,
     additive

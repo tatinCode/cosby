@@ -97,17 +97,17 @@ static QString readEasing(const QJSValue &opts)
     return QStringLiteral("Linear");
 }
 
-static QString readInt(const QJSValue &opts, const char *key, int def = 0)
+static QString readInt(const QJSValue &obj, const char *key, int def = 0)
 {
-    return opts.hasProperty(key) ? opts.property(key).toInt() : def;
+    return obj.hasProperty(key) ? opts.property(key).toInt() : def;
 }
 
 static QString readNumber(const QJSValue &obj, const char *key, double def = 0.0)
 {
-    return opts.hasProperty(key) ? obj.property(key).toNumber() : def;
+    return obj.hasProperty(key) ? obj.property(key).toNumber() : def;
 }
 
-static bool readArray2(const QJSValue &obj, const char *key, double &out0, doulbe &out1)
+static bool readArray2(const QJSValue &obj, const char *key, double &out0, double &out1)
 {
     if (!obj.hasProperty(key))
     {
@@ -250,6 +250,7 @@ js_sprite_proxy *js_sprite_proxy::color(const QJSValue opts)
 js_sprite_proxy *js_sprite_proxy::moveX(const QJSValue &opts)
 {
     command cmd;
+
     cmd.type = cmd_t::move_x;
     cmd.easing = readEasing(opts);
     cmd.start_time = readInt(opts, "startTime", 0);
@@ -262,4 +263,80 @@ js_sprite_proxy *js_sprite_proxy::moveX(const QJSValue &opts)
     return this;
 }
 
-js_sprit
+js_sprite_proxy *js_sprite_proxy::moveY(const QJSValue &opts)
+{
+    command cmd;
+
+    cmd.type = cmd_t::move_y;
+    cmd.easing = readEasing(opts);
+    cmd.start_time = readInt(opts, "startTime", 0);
+    cmd.end_time = readInt(opts, "endTime", 0);
+    cmd.start_params = {readNumber(opts, "startValue", s_->y)};
+    cmd.end_params = {readNumber(opts, "endValue", s_->y)};
+
+    s_->cmds.push_back(cmd);
+
+    return this;
+}
+
+js_sprite_proxy *js_sprite_proxy::scaleVec(const QJSValue &opts)
+{
+    command cmd;
+
+    cmd.type = cmd_t::scale_vec;
+
+    cmd.easing = readEasing(opts);
+    cmd.start_time = readInt(opts, "startTime", 0);
+    cmd.end_time = readInt(opts, "endTime", 0);
+
+    double sx0 = 1.0, sy0 = 1.0;
+    double sx1 = 1.0, sy1 = 1.0;
+
+    readArray2(opts, "startValue", sx0, sy0);
+    readArray2(opts, "endValue", sx1, sy1);
+
+    cmd.start_params = {sx0, sy0};
+    cmd.end_params = {sx1, sy1};
+    s_->cmds.push_back(cmd);
+
+    return this;
+}
+
+js_sprite_proxy *js_sprite_proxy::flipH(const QJSValue &opts)
+{
+    command cmd;
+
+    cmd.type = cmd_t::flip_h;
+    cmd.start_time = readInt(opts, "startTime", 0);
+    cmd.end_time = readInt(opts, "endTime", 0);
+
+    s_->cmds.push_back(cmd);
+
+    return this;
+}
+
+js_sprite_proxy *js_sprite_proxy::flipV(const QJSValue &opts)
+{
+    command cmd;
+
+    cmd.type = cmd_t::flip_v;
+    cmd.start_time = readInt(opts, "startTime", 0);
+    cmd.end_time = readInt(opts, "endTime", 0);
+
+    s_->cmds.push_back(cmd);
+
+    return this;
+}
+
+js_sprite_proxy *js_sprite_proxy::additive(const QJSValue &opts)
+{
+    command cmd;
+
+    cmd.type = cmd_t::additive;
+    cmd.start_time = readInt(opts, "startTime", 0);
+    cmd.end_time = readInt(opts, "endTime", 0);
+
+    s_->cmds.push_back(cmd);
+
+    return this;
+}

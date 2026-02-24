@@ -14,20 +14,20 @@ QObject *js_bridge::add_sprite(const QString &path, const QString &layer,
     return new js_sprite_proxy(&spr, eng_);
 }
 
-QObject *js_bridge::sprite(const QString &path, const QJSValue &opts)
-{
-    QString layer = opts.property("layer").toString();
-    QString origin = opts.property("origin").toString();
-
-    double x = opts.property("x").toNumber();
-    double y = opts.property("y").toNumber();
-
-    return add_sprite(
-        path,
-        layer.isEmpty() ? "Foreground" : layer,
-        origin.isEmpty() ? "Centre" : origin,
-        x, y);
-}
+// QJSValue js_bridge::sprite(const QString &path, const QJSValue &opts)
+//{
+//     QString layer = opts.property("layer").toString();
+//     QString origin = opts.property("origin").toString();
+//
+//     double x = opts.property("x").toNumber();
+//     double y = opts.property("y").toNumber();
+//
+//     return add_sprite(
+//         path,
+//         layer.isEmpty() ? "Foreground" : layer,
+//         origin.isEmpty() ? "Centre" : origin,
+//         x, y);
+// }
 
 layer_t js_bridge::to_layer(const QString &s)
 {
@@ -50,6 +50,13 @@ layer_t js_bridge::to_layer(const QString &s)
     {
         return layer_t::fail;
     }
+
+    if (s.compare("Overlay", Qt::CaseInsensitive) == 0)
+    {
+        return layer_t::overlay;
+    }
+
+    return layer_t::foreground;
 }
 
 origin_t js_bridge::to_origin(const QString &s)
@@ -67,9 +74,9 @@ origin_t js_bridge::to_origin(const QString &s)
     return origin_t::center;
 }
 
-QJSValue js_bridge::createSprite(const QString &path, const QJSValue &opts)
+QObject *js_bridge::sprite(const QString &path, const QJSValue &opts)
 {
-    sprite s;
+    ::sprite s;
     s.path = path;
 
     // parses origin(default: center)
@@ -96,7 +103,7 @@ QJSValue js_bridge::createSprite(const QString &path, const QJSValue &opts)
         }
         else if (originStr == "CenterCenter")
         {
-            s.origin = origin_t::center_center;
+            s.origin = origin_t::center;
         }
         else if (originStr == "CenterRight")
         {
@@ -155,7 +162,7 @@ QJSValue js_bridge::createSprite(const QString &path, const QJSValue &opts)
     // parse position as x,y (default 0,0)
     if (opts.hasProperty("position"))
     {
-        QJSValue pos = opts.property("position");
+        QJSValue posArr = opts.property("position");
 
         if (posArr.isArray())
         {
@@ -171,5 +178,5 @@ QJSValue js_bridge::createSprite(const QString &path, const QJSValue &opts)
 
     sc_->sprites.push_back(s);
     auto *proxy = new js_sprite_proxy(&sc_->sprites.back(), this);
-    return eng_->newQObject(proxy);
+    return proxy;
 }
