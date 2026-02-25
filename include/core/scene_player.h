@@ -23,6 +23,10 @@ struct sprite_state{
     double alpha;
     double scale;
     double rot;     //rotation
+
+    double r;
+    double g;
+    double b;
 };
 
 inline sprite_state eval_sprite(const sprite& s, int ms){
@@ -57,7 +61,9 @@ inline sprite_state eval_sprite(const sprite& s, int ms){
                 break;
 
             case cmd_t::color:
-                /*to do:*/
+                st.r = c.r0 + (c.r1 - c.r0) * k;
+                st.g = c.g0 + (c.g1 - c.g0) * k;
+                st.b = c.b0 + (c.b1 - c.b0) * k
                 break;
                 
             default:

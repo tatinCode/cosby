@@ -14,21 +14,6 @@ QObject *js_bridge::add_sprite(const QString &path, const QString &layer,
     return new js_sprite_proxy(&spr, eng_);
 }
 
-// QJSValue js_bridge::sprite(const QString &path, const QJSValue &opts)
-//{
-//     QString layer = opts.property("layer").toString();
-//     QString origin = opts.property("origin").toString();
-//
-//     double x = opts.property("x").toNumber();
-//     double y = opts.property("y").toNumber();
-//
-//     return add_sprite(
-//         path,
-//         layer.isEmpty() ? "Foreground" : layer,
-//         origin.isEmpty() ? "Centre" : origin,
-//         x, y);
-// }
-
 layer_t js_bridge::to_layer(const QString &s)
 {
     if (s.compare("Background", Qt::CaseInsensitive) == 0)

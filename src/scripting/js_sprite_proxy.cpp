@@ -199,8 +199,6 @@ js_sprite_proxy *js_sprite_proxy::rotate(const QJSValue &opts) {
     return rotate(easing, t0, t1, v0, v1);
 }
 
-// object wrapper for color does not support animated color,
-// but will be added later
 js_sprite_proxy *js_sprite_proxy::color(const QJSValue &opts)
 {
     const QString easing = readEasing(opts);
@@ -208,39 +206,78 @@ js_sprite_proxy *js_sprite_proxy::color(const QJSValue &opts)
     const int t0 = readInt(opts, "startTime", 0);
     const int t1 = readInt(opts, "endTime", 0);
 
-    double r = 255, g = 255, b = 255;
-    double r0 = 255, g0 = 255, b0 = 255;
+    //set default color to white;
+    double r0 = 255.0; 
+    double g0 = 255.0;
+    double b0 = 255.0;
 
-    if (readArray2(opts, "endValue", r, g))
-    {
-        // endValue is [r, g, b] - we already read r, g; try b:
-        QJSValue arr = opts.property("endValue");
-        QJSValue bz = arr.property(2);
 
-        if (bz.isNumber())
-        {
-            b = bz.toNumber();
-        }
-    }
-    else
-    {
-        r = readNumber(opts, "r", r);
-        g = readNumber(opts, "g", g);
-        b = readNumber(opts, "b", b);
-    }
-
-    // we ignore startValue until coloranimation is supported
-    if (readArray2(opts, "startValue", r0, g0))
-    {
+    //startvalue: [r, g, b]
+    if(opts.hasProperty("startValue")){
         QJSValue arr = opts.property("startValue");
-        QJSValue bz = arr.property(2);
-        if (bz.isNumber())
-        {
-            b0 = bz.toNumber();
+
+        if(arr.isArray()){
+            if(arr.property(0).isNumber()){
+                r0 = arr.property(0).toNumber();
+            }
+            if(arr.property(1).isNumber()){
+                g0 = arr.property(1).toNumber();
+            }
+            if(arr.property(2).isNumber()){
+                b0 = arr.property(2).toNumber();
+            }
         }
     }
 
-    return color(easing, t0, t1, r, g, b);
+    //end defautls to start values unless explicitly provided
+    //
+    double r1 = r0;
+    double g1 = g0;
+    double b1 = b0;
+
+    //endvalue: [r, g, b]
+    if(opts.hasProperty("endValue")){
+        QJSValue arr = opts.property("endValue");
+
+        if(arr.isArray()){
+            if(arr.property(0).isNumber()){
+                r1 = arr.property(0).toNumber();
+            }
+            if(arr.property(1).isNumber()){
+                g1 = arr.property(1).toNumber();
+            }
+            if(arr.property(2).isNumber()){
+                b1 = arr.property(2).toNumber();
+            }
+        }
+    }
+    else if(opts.hasProperty("r") || opts.hasProperty("g") || opts.hasProperty("b")){
+        r0 = readNumber(opts, "r", r0);
+        g0 = readNumber(opts, "g", g0);
+        b0 = readNumber(opts, "b", b0);
+
+        r1 = r0;
+        g1 = g0;
+        b1 = b0;
+    }
+
+    command cmd;
+    
+    cmd.type = cmd_t::color;
+    cmd.easing = easing;
+
+    cmd.t0 = t0;
+    cmd.t1 = t1;
+    cmd.r0 = r0;
+    cmd.g0 = g0;
+    cmd.b0 = b0;
+    cmd.r1 = r1;
+    cmd.g1 = g1;
+    cmd.b1 = b1;
+
+    s_->cmds.push_back(cmd);
+
+    return this;
 }
 
 js_sprite_proxy *js_sprite_proxy::moveX(const QJSValue &opts)
@@ -251,8 +288,8 @@ js_sprite_proxy *js_sprite_proxy::moveX(const QJSValue &opts)
     cmd.easing = readEasing(opts);
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
-    cmd.v0 = {readNumber(opts, "startValue", s_->x)};
-    cmd.v1 = {readNumber(opts, "endValue", s_->x)};
+    cmd.v0 = readNumber(opts, "startValue", s_->x);
+    cmd.v1 = readNumber(opts, "endValue", s_->x);
 
     s_->cmds.push_back(cmd);
 
@@ -267,8 +304,8 @@ js_sprite_proxy *js_sprite_proxy::moveY(const QJSValue &opts)
     cmd.easing = readEasing(opts);
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
-    cmd.v0 = {readNumber(opts, "startValue", s_->y)};
-    cmd.v1 = {readNumber(opts, "endValue", s_->y)};
+    cmd.v0 = readNumber(opts, "startValue", s_->y);
+    cmd.v1 = readNumber(opts, "endValue", s_->y);
 
     s_->cmds.push_back(cmd);
 
