@@ -41,19 +41,35 @@ enum class cmd_t
     flip_v,
     additive
 };
+
 struct command
 {
-    cmd_t type{};
+    cmd_t type{cmd_t::move};
 
     QString easing{"Linear"};
 
-    int t0{0}, t1{0};
-    double a0{}, a1{}; // fade
-    double r0{}, r1{}; // rotate
-    double s0{}, s1{}; // scale
-    double x0{}, y0{},
-        x1{}, y1{};       // move
-    double r{}, g{}, b{}; // color
+    //time start and end
+    int t0{0};
+    int t1{0};
+
+    //generic scalar interpolation parameters
+    // (fade, scale, rotate, moveX, moveY)
+    double v0 {0.0};
+    double v1 {0.0};
+
+    //2d interpolation parameters (move, scaleVec)
+    double x0{0.0};
+    double y0{0.0};
+    double x1{0.0};
+    double y1{0.0};
+
+    //color interpolation (RGB)
+    double r0{255.0};
+    double g0{255.0};
+    double b0{255.0};
+    double r1{255.0};
+    double g1{255.0};
+    double b1{255.0};
 };
 
 struct sprite

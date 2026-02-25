@@ -1,12 +1,9 @@
 #pragma once
 
 #include "core/scene.h"
-
 #include <QPainter>
 #include <algorithm>
 #include <cmath>
-
-
 
 inline double ease(const QString& type, double t){
     if(type == "In"){
@@ -43,7 +40,7 @@ inline sprite_state eval_sprite(const sprite& s, int ms){
 
         switch(c.type){
             case cmd_t::fade:
-                st.alpha =  c.a0 + (c.a1 - c.a0) * k;
+                st.alpha =  c.v0 + (c.v1 - c.v0) * k;
                 break;
 
             case cmd_t::move:
