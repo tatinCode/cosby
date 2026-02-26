@@ -53,11 +53,11 @@ inline sprite_state eval_sprite(const sprite& s, int ms){
                 break;
 
             case cmd_t::scale:
-                st.scale = c.s0 + (c.s1 - c.s0) * k;
+                st.scale = c.v0 + (c.v1 - c.v0) * k;
                 break;
 
             case cmd_t::rotate:
-                st.rot = c.r0 + (c.r1 - c.r0) * k;
+                st.rot = c.v0 + (c.v1 - c.v0) * k;
                 break;
 
             case cmd_t::color:
