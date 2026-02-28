@@ -74,7 +74,6 @@ js_sprite_proxy *js_sprite_proxy::color(const QString &easing, int t0, int t1,
     cmd.t0 = t0;
     cmd.t1 = t1;
 
-    // we currently do not support animated color, so we set start and end to the same value
     cmd.r0 = r;
     cmd.g0 = g;
     cmd.b0 = b;
