@@ -36,6 +36,8 @@ class MainWindow : public QMainWindow {
 
     private:
         void create_menus();
+        void show_info(const QString& message, int timeout_ms);
+        void show_error(const QString& message, int timeout_ms);
 
     private:
         //timeline

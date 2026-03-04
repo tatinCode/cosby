@@ -79,9 +79,7 @@ MainWindow::MainWindow(QWidget* parent):
     create_menus();
     m_actions->connect_slots(this);
 
-    QStatusBar().showMessage("Ready");
-
-    m_script = new script_host(this);
+    show_info("Ready", 3000);
 
     connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
 
@@ -140,9 +138,14 @@ void MainWindow::on_save_project(){
 //project tab
 void MainWindow::on_run_script(){
     auto result = m_script->run(m_code->toPlainText());
-    QStatusBar().showMessage(result, 3000);
+    if(!result.isEmpty()){
+        show_error(result, 5000);
+        return;
+    }
+    result = "Script ran successfully";
 
-    // TODO: pull scene graph from ScriptHost and feed to Preview/Timeline
+    m_preview->set_scene(&m_script->current_scene());
+    show_info(result, 3000);
 }
 
 void MainWindow::on_build_json(){
@@ -157,5 +160,13 @@ void MainWindow::on_export_osb(){
 void MainWindow::on_about(){
     QMessageBox::about(this, "About cosby",
             "cosby storyboard editor\nC++, JSON-based pipeline");
+}
+
+void MainWindow::show_info(const QString& message, int timeout_ms){
+    statusBar()->showMessage(message, timeout_ms);
+}
+
+void MainWindow::show_error(const QString& message, int timeout_ms){
+    statusBar()->showMessage(message, timeout_ms);
 }
 
