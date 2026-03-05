@@ -82,20 +82,6 @@ MainWindow::MainWindow(QWidget* parent):
     show_info("Ready", 3000);
 
     connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
-
-    //m_project_root = QDir::currentPath();
-
-    //seed example script
-    /*
-    m_code->setPlainText(
-            "//Example: build scene\n"
-            "scene = [];\n"
-            "function addSprite(path, t){scene.push({path, t}); }\n"
-            "for (let c = 0; c < 16; c++){\n"
-            "   addSprite('sprite.png', c * 250);\n"
-            "}\n"
-            );
-    */
 }
 
 MainWindow::~MainWindow() = default;
