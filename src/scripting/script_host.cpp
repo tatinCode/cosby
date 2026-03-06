@@ -17,28 +17,37 @@ script_host::script_host(QObject* parent) : QObject(parent){
     eng_.evaluate(
             QStringLiteral(R"JS(
             function print(){
-             var out = '';
+             var out = "";
              for(var i = 0; i < arguments.length; ++i){
                if(i){
-                   out += '';
+                   out += " ";
                 }
                 out += String(arguments[i]);
+             }
              __native.print(out);
             }
-            
+
             //console.* aliases:
             var console = { log: print, warn: print, error: print };
             )JS"),
             QStringLiteral("<bootstrap>")   //filename for error stacks
             );
-
-
 }
 
-QString script_host::run(const QString& source){
-    sc_ = scene{};
+QString script_host::run(const QString& source, const QString& preload_source){
+    sc_ = scene{};  //resets the scene every start
 
-    QJSValue res = eng_.evaluate(source, "<user_script>");
+    if(!preload_source.isEmpty()){
+        QJSValue pre = eng_.evaluate(preload_source, "<preload>");
+
+        if(pre.isError()){
+            return QString("Preload error: %1 (line %2)")
+                .arg(pre.toString())
+                .arg(pre.property("lineNumber").toInt());
+        }
+    }
+
+    QJSValue res = eng_.evaluate(source, "<script>");
 
     if(res.isError()){
         return QString("Error: %1 (line %2)")
@@ -48,4 +57,5 @@ QString script_host::run(const QString& source){
 
     return {};
 }
+
 

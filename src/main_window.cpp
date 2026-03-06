@@ -1,7 +1,7 @@
 #include "main_window.h"
 #include "timeline_view.h"
-#include "preview_widget.h"
-#include "script_host.h"
+#include "ui/preview_widget.h"
+#include "scripting/script_host.h"
 #include "menus.h"
 #include "app_actions.h"
 
@@ -12,13 +12,28 @@
 #include <QTimer>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QFile>
+#include <QTextStream>
+#include <QDir>
+
+static QString load_text_file(const QString& path){
+    QFile f(path);
+    
+    if(!f.open(QIODevice::ReadOnly | QIODevice::Text)){
+        return {};
+    }
+
+    QTextStream ts(&f);
+
+    return ts.readAll();
+}
 
 MainWindow::MainWindow(QWidget* parent):
     QMainWindow(parent),
     m_timeline(new TimelineView(this)),
     m_preview(new PreviewWidget(this)),
     m_code(new QPlainTextEdit(this)),
-    m_script(new ScriptHost(this))
+    m_script(new script_host(this))
 {
     setWindowTitle("cosby");
 
@@ -64,18 +79,9 @@ MainWindow::MainWindow(QWidget* parent):
     create_menus();
     m_actions->connect_slots(this);
 
-    QStatusBar().showMessage("Ready");
+    show_info("Ready", 3000);
 
-    //seed example script
-    m_code->setPlainText(
-            "//Example: build scene\n"
-            "scene = [];\n"
-            "function addSprite(path, t){scene.push({path, t}); }\n"
-            "for (let c = 0; c < 16; c++){\n"
-            "   addSprite('sprite.png', c * 250);\n"
-            "}\n"
-            );
-
+    connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
 }
 
 MainWindow::~MainWindow() = default;
@@ -118,9 +124,14 @@ void MainWindow::on_save_project(){
 //project tab
 void MainWindow::on_run_script(){
     auto result = m_script->run(m_code->toPlainText());
-    QStatusBar().showMessage(result, 3000);
+    if(!result.isEmpty()){
+        show_error(result, 5000);
+        return;
+    }
+    result = "Script ran successfully";
 
-    // TODO: pull scene graph from ScriptHost and feed to Preview/Timeline
+    m_preview->set_scene(&m_script->current_scene());
+    show_info(result, 3000);
 }
 
 void MainWindow::on_build_json(){
@@ -135,5 +146,13 @@ void MainWindow::on_export_osb(){
 void MainWindow::on_about(){
     QMessageBox::about(this, "About cosby",
             "cosby storyboard editor\nC++, JSON-based pipeline");
+}
+
+void MainWindow::show_info(const QString& message, int timeout_ms){
+    statusBar()->showMessage(message, timeout_ms);
+}
+
+void MainWindow::show_error(const QString& message, int timeout_ms){
+    statusBar()->showMessage(message, timeout_ms);
 }
 

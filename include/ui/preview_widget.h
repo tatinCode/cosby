@@ -14,8 +14,8 @@ class PreviewWidget : public QWidget {
 
         void play();
         void stop();
-        void seekMs(qint64 ms);
         void set_scene(const scene* sc);
+        void seekMs(qint64 ms);
 
     Q_SIGNALS:
         void timeChanged(qint64 ms);

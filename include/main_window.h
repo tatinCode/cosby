@@ -5,7 +5,7 @@ class QAction;
 class TimelineView;
 class PreviewWidget;
 class QPlainTextEdit;
-class ScriptHost;
+class script_host;
 class AppActions;
 
 class MainWindow : public QMainWindow {
@@ -16,18 +16,18 @@ class MainWindow : public QMainWindow {
         ~MainWindow() override;
 
         private slots:
-        void on_play();
+            void on_play();
         void on_stop();
         void on_division_changed(int idx);
 
         public slots:
-        //file tab
-        void on_new_project();
+            //file tab
+            void on_new_project();
+        void on_run_script();
         void on_open_project();
         void on_save_project();
 
         //project tab
-        void on_run_script();
         void on_build_json();
         void on_export_osb();
 
@@ -36,6 +36,8 @@ class MainWindow : public QMainWindow {
 
     private:
         void create_menus();
+        void show_info(const QString& message, int timeout_ms);
+        void show_error(const QString& message, int timeout_ms);
 
     private:
         //timeline
@@ -43,13 +45,12 @@ class MainWindow : public QMainWindow {
 
         //editor
         QPlainTextEdit* m_code = nullptr;
-        ScriptHost* m_script = nullptr;
+        script_host* m_script = nullptr;
+        QString m_project_root;
 
         //preview
+        AppActions* m_actions = nullptr;
         PreviewWidget* m_preview = nullptr;
         QAction* m_act_play = nullptr;
         QAction* m_act_stop = nullptr;
-
-        //menu bar
-        AppActions* m_actions = nullptr;
 };

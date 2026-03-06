@@ -19,7 +19,10 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_exit->setShortcut(QKeySequence::Quit);
 
     //project tab
-    act_run = new QAction("&Run Script", this);
+    act_run = new QAction(tr("&Run Script"), this);
+    act_run->setShortcut(QKeySequence(Qt::Key_F5));
+    act_run->setStatusTip(tr("Evaluate the current script and refresh the preview"));
+    //setIcon(Qicon(":/icon/run.svg"));     //<-for the icon
     act_build = new QAction("&Build JSON", this);
     act_export = new QAction("E&xport &.osb", this);
 
