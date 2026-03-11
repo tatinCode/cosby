@@ -5,7 +5,9 @@ project(cosby LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.5 COMPONENTS Widgets Gui Multimedia Qml REQUIRED)
+find_package(Qt6 6.5 COMPONENTS Widgets Gui Multimedia Qml Test REQUIRED)
+
+enable_testing()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
@@ -35,6 +37,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Gui 
     Qt6::Multimedia 
     Qt6::Qml
+    Qt6::Test
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
