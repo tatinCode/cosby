@@ -7,7 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.5 COMPONENTS Widgets Gui Multimedia Qml Test REQUIRED)
 
-enable_testing()
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
@@ -28,6 +27,8 @@ file(GLOB_RECURSE HEADER_FILES CONFIGURE_DEPENDS
     include/scripting/*.h
 )
 
+enable_testing()
+
 add_executable(${PROJECT_NAME} ${SRC_FILES} ${HEADER_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
@@ -44,4 +45,25 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     QT_DEPRECATED_WARNINGS
     #    QT_NO_KEYWORDS
 )
+
+#tests
+add_executable(test_scene_player
+    test/test_scene_player.cpp
+)
+
+target_include_directories(test_scene_player PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_scene_player PRIVATE
+    Qt6::Test
+    Qt6::Gui
+    Qt6::Widgets
+)
+
+set_target_properties(test_scene_player PROPERTIES
+    AUTOMOC ON
+)
+
+add_test(NAME test_scene_player COMMAND test_scene_player)
 
