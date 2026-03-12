@@ -1,6 +1,7 @@
 #pragma once
 
-#include <QString> #include <QVector>
+#include <QString> 
+#include <QVector>
 #include <QHash>
 #include <QPixmap>
 
