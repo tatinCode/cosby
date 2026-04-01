@@ -1,9 +1,13 @@
 #pragma once
 
 #include "core/scene.h"
-#include <QPainter>
+
 #include <algorithm>
 #include <cmath>
+
+#include <QPainter>
+#include <QPixmap>
+#include <QHash>
 
 inline double ease(const QString& type, double t){
     if(type == "In"){
@@ -15,6 +19,44 @@ inline double ease(const QString& type, double t){
     }
 
     return t; //linear
+}
+
+inline QPointF origin_offset(origin_t origin, double w, double h){
+    switch(origin){
+        //top 
+        case origin_t::top_left:
+            return QPointF(0.0, 0.0);
+
+        case origin_t::top_center:
+            return QPointF(w / 2.0, 0.0);
+            
+        case origin_t::top_right:
+            return QPointF(w, 0.0);
+
+
+        //center
+        case origin_t::center_left:
+            return QPointF(0.0, h / 2.0);
+
+        case origin_t::center:
+            return QPointF(w / 2.0, h / 2.0);
+
+        case origin_t::center_right:
+            return QPointF(w, h / 2.0);
+
+        //bottom
+        case origin_t::bottom_left:
+            return QPointF(0.0, h);
+
+        case origin_t::bottom_center:
+            return QPointF(w / 2.0, h);
+
+        case origin_t::bottom_right:
+            return QPointF(w, h);
+    }
+
+    return QPointF(w / 2.0, h / 2.0);
+
 }
 
 struct sprite_state{
@@ -124,7 +166,7 @@ inline sprite_state eval_sprite(const sprite& s, int ms){
     return state;
 }
 
-inline void draw_scene(QPainter& p, const scene& sc, int ms){
+inline void draw_scene(QPainter& p, const scene& sc, int ms, const QHash<QString, QPixmap>& pixmaps){
     for(const auto& s : sc.sprites){
         auto state = eval_sprite(s, ms);
 
@@ -137,17 +179,30 @@ inline void draw_scene(QPainter& p, const scene& sc, int ms){
             p.setCompositionMode(QPainter::CompositionMode_SourceOver);
         }
 
-        QRectF rect(state.x - 16, state.y - 16, 32, 32);
+        const QPixmap* pix = nullptr;
+        double width = 32.0;
+        double height = 32.0;
+
+        auto it = pixmaps.find(s.path);
+        if(it != pixmaps.end() && !it->isNull()){
+            pix = &it.value();
+            width = pix->width();
+            height = pix->height();
+        }
+
+        const QPointF offset = origin_offset(s.origin, width, height);
+        QRectF rect(state.x - offset.x(), state.y - offset.y(), width, height);
 
         const double flip_scale_x = state.flip_h ? -1.0 : 1.0;
         const double flip_scale_y = state.flip_v ? -1.0 : 1.0;
         const double final_scale_x = state.scale * state.scale_x * flip_scale_x;
         const double final_scale_y = state.scale * state.scale_y * flip_scale_y;
 
-        p.translate(rect.center());
+        const QPointF pivot(state.x, state.y);
+        p.translate(pivot);
         p.rotate(state.rot * 180.0 / M_PI);
         p.scale(final_scale_x, final_scale_y);
-        p.translate(-rect.center());
+        p.translate(-pivot);
 
         QColor tint(
             std::clamp(int(std::lround(state.r)), 0, 255),
@@ -155,8 +210,13 @@ inline void draw_scene(QPainter& p, const scene& sc, int ms){
             std::clamp(int(std::lround(state.b)), 0, 255)
             );
 
-        p.setPen(tint);
-        p.drawRect(rect);
+        if(pix){
+            p.drawPixmap(rect.topLeft(), *pix);
+        }
+        else{
+            p.setPen(tint);
+            p.drawRect(rect);
+        }
 
         p.restore();
     }

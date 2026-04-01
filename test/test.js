@@ -1,10 +1,19 @@
 print("Smoke test start");
-const s = SceneApi.sprite("dummy.png", {
+const s = SceneApi.sprite("test/assets/dummy.png", {
     layer: "Foreground",
     origin: "Center",
     position: [320, 240]
 });
+
 // Core commands
+s.scale({
+    easing: "Linear",
+    startTime: 0,
+    endTime: 500,
+    startValue: 0.02,
+    endValue: 0.02
+});
+
 s.fade({ 
     easing: "Linear", 
     startTime: 0, 
@@ -25,8 +34,8 @@ s.scale({
     easing: "Out", 
     startTime: 500, 
     endTime: 1500, 
-    startValue: 0.5, 
-    endValue: 1.5 
+    startValue: 0.02, 
+    endValue: 0.08 
 });
 
 s.rotate({ 
@@ -67,8 +76,8 @@ s.scaleVec({
     easing: "Linear", 
     startTime: 2000, 
     endTime: 3000, 
-    startValue: [1.0, 0.5], 
-    endValue: [2.0, 1.5] 
+    startValue: [0.08, 0.04], 
+    endValue: [0.16, 0.12] 
 });
 
 // Timed flip/additive window
