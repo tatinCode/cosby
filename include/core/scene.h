@@ -1,8 +1,9 @@
 #pragma once
 
-#include <QString>
+#include <QString> 
 #include <QVector>
-#include <utility>
+#include <QHash>
+#include <QPixmap>
 
 enum class layer_t
 {

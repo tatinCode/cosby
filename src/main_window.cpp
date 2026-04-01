@@ -130,6 +130,8 @@ void MainWindow::on_run_script(){
     }
     result = "Script ran successfully";
 
+    m_preview->set_base_path(m_project_root.isEmpty() ? "." : m_project_root);
+
     m_preview->set_scene(&m_script->current_scene());
     show_info(result, 3000);
 }

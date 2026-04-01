@@ -3,6 +3,7 @@
 #include "core/scene_player.h"
 
 #include <QPainter>
+#include <QDir>
 
 PreviewWidget::PreviewWidget(QWidget* parent):
     QWidget(parent),
@@ -37,6 +38,7 @@ void PreviewWidget::seekMs(qint64 ms){
 
 void PreviewWidget::set_scene(const scene* sc){
     m_scene_ref = sc;
+    load_pixmaps();
     update();
 }
 
@@ -48,14 +50,29 @@ void PreviewWidget::paintEvent(QPaintEvent*){
         return;
     }
 
-    draw_scene(p, *m_scene_ref, m_time_ms);
-
-    /*
-    //placeholder preview content
-    p.setPen(Qt::white);
-    p.drawText(20, 30, QString("Preview t=%1 ms").arg(m_time_ms));
-    p.drawRect(rect().adjusted(10, 10, -10, -10));
-    */
+    draw_scene(p, *m_scene_ref, m_time_ms, m_pixmap_cache);
 }
 
+void PreviewWidget::set_base_path(const QString& path){
+    m_base_path = path;
+}
+
+void PreviewWidget::load_pixmaps(){
+    m_pixmap_cache.clear();
+
+    if(!m_scene_ref){
+        return;
+    }
+
+    QDir base(m_base_path.isEmpty() ? "." : m_base_path);
+
+    for(const auto& s : m_scene_ref->sprites){
+        if(s.path.isEmpty() || m_pixmap_cache.contains(s.path)){
+            continue;
+        }
+        
+        const QString path = base.filePath(s.path);
+        m_pixmap_cache.insert(s.path, QPixmap(path));
+    }
+}
 
