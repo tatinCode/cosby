@@ -12,6 +12,7 @@ public:
     explicit AppActions(QObject* parent = nullptr);
 
     //for file tab
+    QAction* act_new = nullptr;
     QAction* act_new_from_beatmap = nullptr;
     QAction* act_open = nullptr;
     QAction* act_save = nullptr;
@@ -23,7 +24,7 @@ public:
     QAction* act_export = nullptr;
 
     //project flow
-    QAction* on_new_project() = nullptr;
+    QAction* on_new_project = nullptr;
 
     //help!!!
     QAction* act_about = nullptr;
