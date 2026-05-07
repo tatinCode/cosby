@@ -22,7 +22,7 @@ class MainWindow : public QMainWindow {
 
         public slots:
             //file tab
-            void on_new_project();
+            void on_new_project_from_beatmap();
         void on_run_script();
         void on_open_project();
         void on_save_project();

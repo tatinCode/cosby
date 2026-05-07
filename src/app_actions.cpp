@@ -6,8 +6,8 @@
 
 AppActions::AppActions(QObject* parent) : QObject(parent){
     //file tab
-    act_new = new QAction("&New Project", this);
-    act_new->setShortcut(QKeySequence::New);
+    act_new_from_beatmap = new QAction("New Project from &Beatmap", this);
+    act_new_from_beatmap->setShortcut(QKeySequence::New);
 
     act_open = new QAction("&Open Project...", this);
     act_open->setShortcut(QKeySequence::Open);
@@ -37,7 +37,7 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
 
 void AppActions::connect_slots(MainWindow* r){ //r is the receiver
     //file tab
-    QObject::connect(act_new, &QAction::triggered, r, &MainWindow::on_new_project);
+    QObject::connect(act_new_from_beatmap, &QAction::triggered, r, &MainWindow::on_new_project_from_beatmap);
     QObject::connect(act_open, &QAction::triggered, r, &MainWindow::on_open_project);
     QObject::connect(act_save, &QAction::triggered, r, &MainWindow::on_save_project);
 

@@ -8,7 +8,7 @@ namespace Menus{
     void build(QMenuBar* bar, AppActions* a){
         //file tab
         auto* file = bar->addMenu("&File");
-        file->addAction(a->act_new);
+        file->addAction(a->act_new_from_beatmap);
         file->addAction(a->act_open);
         file->addAction(a->act_save);
         file->addSeparator();
