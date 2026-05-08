@@ -28,12 +28,12 @@ namespace{
 
         double bpm;
 
-        bool is_valid(){
+        bool is_valid() const{
             return !beatmap_folder.isEmpty() && !osu_file_path.isEmpty();
         }
     };
 
-    QStringList find_osu_files(const QString& path){
+    QStringList find_osu_files(const QString& folder_path){
         QDir dir(folder_path);
         return dir.entryList({"*.osu"}, QDir::Files, QDir::Name);
     }
@@ -66,7 +66,7 @@ namespace{
         return QDir(folder_path).filePath(choice);
     }
 
-    BeatmapImportInfo sparse_beatmap_metadata(const QString& osu_file_path){
+    BeatmapImportInfo parse_beatmap_metadata(const QString& osu_file_path){
         BeatmapImportInfo info;
 
         info.osu_file_path = osu_file_path;
