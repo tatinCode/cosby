@@ -4,6 +4,7 @@
 #include "scripting/script_host.h"
 #include "menus.h"
 #include "app_actions.h"
+#include "project/osu_parser.h"
 
 #include <QDockWidget>
 #include <QToolBar>
@@ -17,7 +18,8 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QInputDialog>
-#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 namespace{
     struct BeatmapImportInfo{
@@ -26,7 +28,7 @@ namespace{
         QString audio_file;
         QString background_file;
 
-        double bpm;
+        double bpm = 180.0;
 
         bool is_valid() const{
             return !beatmap_folder.isEmpty() && !osu_file_path.isEmpty();

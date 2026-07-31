@@ -46,11 +46,22 @@ class MainWindow : public QMainWindow {
         //editor
         QPlainTextEdit* m_code = nullptr;
         script_host* m_script = nullptr;
-        QString m_project_root;
 
         //preview
         AppActions* m_actions = nullptr;
         PreviewWidget* m_preview = nullptr;
         QAction* m_act_play = nullptr;
         QAction* m_act_stop = nullptr;
+
+        //project
+        QString m_project_file_path;
+        QString m_project_root;
+        QString m_project_root;
+        QString m_script_relative_path = "scripts/main.js";
+
+        QString m_osu_file;
+        QString m_audio_file;
+        QString m_bg_file;
+
+        double m_bpm = 180.0;
 };
