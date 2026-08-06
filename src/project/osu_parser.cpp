@@ -6,7 +6,7 @@
 #include <QTextStream>
 
 namespace{
-    QString unquote_osu_value(const QString& value){
+    QString unquote_osu_value(QString value){
         value = value.trimmed();
 
         if(value.size() >= 2 && value.front() == '"' && value.back() == '"'){
@@ -29,7 +29,7 @@ namespace{
             }
 
             if(ch == ',' && !in_quotes){
-                parts.push_back(current);
+                parts.push_back(current.trimmed());
                 current.clear();
                 continue;
             }
@@ -76,7 +76,7 @@ BeatmapImportInfo parse_beatmap_metadata(const QString& osu_file_path){
         }
 
         if(section == "[General]"){
-            const int colon_idx = line.indexOf(':');
+            const int colon = line.indexOf(':');
             if(colon < 0){
                 continue;
             }
@@ -106,7 +106,7 @@ BeatmapImportInfo parse_beatmap_metadata(const QString& osu_file_path){
         }
 
         if(section == "[TimingPoints]" && !found_bpm){
-            const QStringList parts = split_osu_csv_line(line);
+            const QStringList parts = split_osu_value(line);
 
             if(parts.size() >= 2){
                 bool ok = false;

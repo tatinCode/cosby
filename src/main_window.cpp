@@ -21,23 +21,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
-namespace{
-    struct BeatmapImportInfo{
-        QString beatmap_folder;
-        QString osu_file_path;
-        QString audio_file;
-        QString background_file;
-
-        double bpm = 180.0;
-
-        bool is_valid() const{
-            return !beatmap_folder.isEmpty() && !osu_file_path.isEmpty();
-        }
-    };
-
-    QStringList find_osu_files(const QString& folder_path){
-        QDir dir(folder_path);
-        return dir.entryList({"*.osu"}, QDir::Files, QDir::Name);
+namespace {
+    QString find_osu_files(const QString& folder){
+        QDir dir(folder);
+        
+        return dir.entryList(QStringList() << "*.osu", QDir::Files);
     }
 
     QString choose_osu_file(QWidget* parent, const QString& folder_path, const QStringList& osu_files){
@@ -46,41 +34,16 @@ namespace{
         }
 
         if(osu_files.size() == 1){
-            return QDir(folder_path).filePath(osu_files.first());
+            return QDir(folder_path).filepath(osu_files.first());
         }
 
         bool ok = false;
 
         const QString choice = QInputDialog::getItem(
                 parent,
-                "Select Beatmap",
-                "Choose Difficulty (.osu)",
-                osu_files,
-                0,
-                false,
-                &ok
-        );
-
-        if(!ok || choice.isEmpty()){
-            return {};
-        }
-
-        return QDir(folder_path).filePath(choice);
-    }
-
-    BeatmapImportInfo parse_beatmap_metadata(const QString& osu_file_path){
-        BeatmapImportInfo info;
-
-        info.osu_file_path = osu_file_path;
-        info.beatmap_folder = QFileInfo(osu_file_path).absolutePath();
-
-        /**
-         * Implement .osu file parser here
-         */
-
-        return info;
     }
 }
+
 
 static QString load_text_file(const QString& path){
     QFile f(path);

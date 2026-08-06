@@ -56,12 +56,12 @@ class MainWindow : public QMainWindow {
         //project
         QString m_project_file_path;
         QString m_project_root;
-        QString m_project_root;
+        QString m_asset_root;
         QString m_script_relative_path = "scripts/main.js";
 
         QString m_osu_file;
         QString m_audio_file;
-        QString m_bg_file;
+        QString m_background_file;
 
         double m_bpm = 180.0;
 };
