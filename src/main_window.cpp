@@ -14,6 +14,7 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QDir>
 #include <QFileDialog>
@@ -41,6 +42,19 @@ namespace {
 
         const QString choice = QInputDialog::getItem(
                 parent,
+                "Select Beatmap",
+                "Choose Difficulty (.osu)",
+                osu_files,
+                0,
+                false,
+                &ok
+                );
+
+        if(!ok || choice.isEmpty()){
+            return {};
+        }
+
+        return QDir(folder_path).filepath(choice);
     }
 }
 
@@ -166,15 +180,21 @@ void MainWindow::on_new_project_from_beatmap(){
         return;
     }
 
-    /**
-     * This is where:
-     * 1. Create a new project
-     * 2. create project.cosby
-     * 3. create scripts/main.js
-     * 4. load project into preview
-     *
-     * goes
-     */
+    m_asset_root = beatmap.beatmap_folder;
+    m_osu_file = osu_file_path;
+    m_audio_file = beatmap.audio_file;
+    m_background_file = beatmap.background_file;
+    m_bpm = beatmap.bpm;
+
+    m_timeline->setBpm(m_bpm);
+
+    show_info(
+            QString("Loaded beatmap: BPM %1, Audio: %2, Background: %3")
+            .arg(m_bpm)
+            .arg(m_audio_file)
+            .arg(m_background_file),
+            5000
+            );
 }
 
 void MainWindow::on_open_project(){
@@ -194,7 +214,12 @@ void MainWindow::on_run_script(){
     }
     result = "Script ran successfully";
 
-    m_preview->set_base_path(m_project_root.isEmpty() ? "." : m_project_root);
+    //m_preview->set_base_path(m_project_root.isEmpty() ? "." : m_project_root);
+    const QString base_path = !m_asset_root.isEmpty() ? m_asset_root 
+        : (m_project_root.isEmpty() ? "." : m_project_root);
+
+    m_preview->set_base_path(base_path);
+
 
     m_preview->set_scene(&m_script->current_scene());
     show_info(result, 3000);
