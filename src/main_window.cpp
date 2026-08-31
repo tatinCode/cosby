@@ -21,9 +21,10 @@
 #include <QInputDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QStringList>
 
 namespace {
-    QString find_osu_files(const QString& folder){
+    QStringList find_osu_files(const QString& folder){
         QDir dir(folder);
         
         return dir.entryList(QStringList() << "*.osu", QDir::Files);
@@ -35,7 +36,7 @@ namespace {
         }
 
         if(osu_files.size() == 1){
-            return QDir(folder_path).filepath(osu_files.first());
+            return QDir(folder_path).filePath(osu_files.first());
         }
 
         bool ok = false;
@@ -54,7 +55,7 @@ namespace {
             return {};
         }
 
-        return QDir(folder_path).filepath(choice);
+        return QDir(folder_path).filePath(choice);
     }
 }
 
@@ -113,7 +114,7 @@ MainWindow::MainWindow(QWidget* parent):
     tb->addWidget(division_box);
 
     tb->addSeparator();
-    tb->addAction("Run Script", this, &MainWindow::on_run_script);
+    //tb->addAction("Run Script", this, &MainWindow::on_run_script);
 
     //wire timeline <-> preview (shared playhead in ms)
     connect(m_timeline, &TimelineView::requestSeek, m_preview, &PreviewWidget::seekMs);
@@ -124,7 +125,7 @@ MainWindow::MainWindow(QWidget* parent):
 
     show_info("Ready", 3000);
 
-    connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
+    //connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
 }
 
 MainWindow::~MainWindow() = default;
