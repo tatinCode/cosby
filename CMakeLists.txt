@@ -46,9 +46,12 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 )
 
 #tests
+
+#test for scene player
 add_executable(test_scene_player
     test/test_scene_player.cpp
 )
+
 
 target_include_directories(test_scene_player PRIVATE
     ${CMAKE_SOURCE_DIR}/include
@@ -65,4 +68,27 @@ set_target_properties(test_scene_player PROPERTIES
 )
 
 add_test(NAME test_scene_player COMMAND test_scene_player)
+###
+
+#tests for project file
+add_executable(test_project_file
+    test/test_project_file.cpp
+    src/project/project_file.cpp
+)
+
+target_include_directories(test_project_file PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_project_file PRIVATE
+    Qt6::Test
+)
+
+set_target_properties(test_project_file PROPERTIES
+    AUTOMOC ON
+)
+
+add_test(NAME test_project_file COMMAND test_project_file)
+###
+
 
