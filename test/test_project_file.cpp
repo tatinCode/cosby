@@ -32,6 +32,8 @@ class TestProjectFile : public QObject{
 void TestProjectFile::test_round_trip(){
     QTemporaryDir dir;
 
+    QVERIFY(dir.isValid());
+
     const QString path = dir.filePath("project.cosby");
 
     ProjectData expected;
@@ -53,10 +55,15 @@ void TestProjectFile::test_round_trip(){
 
 void TestProjectFile::test_invalid_json(){
     QTemporaryDir dir;
+    
+    QVERIFY(dir.isValid());
 
-    const QString path = directory.filePath("project.cosby");
+    const QString path = dir.filePath("project.cosby");
 
-    QVERIFY2(write_test_file(path, "{ invalid json }"));
+    QVERIFY2(
+            write_test_file(path, "{ invalid json }")
+            , "Could not create invalid json TEST file"
+            );
 
     QString error;
 
@@ -67,11 +74,11 @@ void TestProjectFile::test_invalid_json(){
 }
 
 void TestProjectFile::test_unsupported_version(){
-    QTermporaryDir dir;
+    QTemporaryDir dir;
 
-    QVERIFY(directory.isValid());
+    QVERIFY(dir.isValid());
 
-    const QString path = directory.filePath("project.cosby");
+    const QString path = dir.filePath("project.cosby");
 
     const QByteArray json = R"({
         "formatVersion": 2,
@@ -91,9 +98,9 @@ void TestProjectFile::test_unsupported_version(){
 void TestProjectFile::test_missing_beatmap_file(){
     QTemporaryDir dir;
     
-    QVERIFY(directory.isValid());
+    QVERIFY(dir.isValid());
 
-    const QString path = directory.filePath("project.cosby");
+    const QString path = dir.filePath("project.cosby");
 
     const QByteArray json = R"({
         "formatVersion": 1,
@@ -113,9 +120,9 @@ void TestProjectFile::test_missing_beatmap_file(){
 void TestProjectFile::test_missing_script_file(){
     QTemporaryDir dir;
 
-    QVERIFY(directory.isValid());
+    QVERIFY(dir.isValid());
 
-    cons QString path = directory.filePath("project.cosby");
+    const QString path = dir.filePath("project.cosby");
 
     const QByteArray json = R"({
         "formatVersion": 1,
@@ -129,15 +136,15 @@ void TestProjectFile::test_missing_script_file(){
     const auto project = load_project_file(path, &error);
 
     QVERIFY(!project.has_value());
-    QVERIFY(error.contains("scriptsFile"));
+    QVERIFY(error.contains("scriptFile"));
 }
 
 void TestProjectFile::test_empty_save_values(){
     QTemporaryDir dir;
 
-    QVERIFY(directory.isValid());
+    QVERIFY(dir.isValid());
 
-    const QString path = directory.filePath("project.cosby");
+    const QString path = dir.filePath("project.cosby");
 
     ProjectData project;
     QString error;
@@ -149,9 +156,6 @@ void TestProjectFile::test_empty_save_values(){
 
     project.beatmap_file = "/example/difficulty.osu";
     project.script_file.clear();
-
-    QVERIFY(!save_project_file(path, project, &error));
-    QVERIFY(!error.isEmpty());
 
     QVERIFY(!save_project_file(path, project, &error));
     QVERIFY(!error.isEmpty());
