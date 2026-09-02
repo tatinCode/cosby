@@ -13,6 +13,7 @@ public:
 
     //for file tab
     QAction* act_new = nullptr;
+    QAction* act_new_from_beatmap = nullptr;
     QAction* act_open = nullptr;
     QAction* act_save = nullptr;
     QAction* act_exit = nullptr;
@@ -21,6 +22,9 @@ public:
     QAction* act_run = nullptr;
     QAction* act_build = nullptr;
     QAction* act_export = nullptr;
+
+    //project flow
+    QAction* on_new_project = nullptr;
 
     //help!!!
     QAction* act_about = nullptr;

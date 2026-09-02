@@ -4,6 +4,7 @@
 #include "scripting/script_host.h"
 #include "menus.h"
 #include "app_actions.h"
+#include "project/osu_parser.h"
 
 #include <QDockWidget>
 #include <QToolBar>
@@ -13,8 +14,51 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QDir>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QStringList>
+
+namespace {
+    QStringList find_osu_files(const QString& folder){
+        QDir dir(folder);
+        
+        return dir.entryList(QStringList() << "*.osu", QDir::Files);
+    }
+
+    QString choose_osu_file(QWidget* parent, const QString& folder_path, const QStringList& osu_files){
+        if(osu_files.isEmpty()){
+            return {};
+        }
+
+        if(osu_files.size() == 1){
+            return QDir(folder_path).filePath(osu_files.first());
+        }
+
+        bool ok = false;
+
+        const QString choice = QInputDialog::getItem(
+                parent,
+                "Select Beatmap",
+                "Choose Difficulty (.osu)",
+                osu_files,
+                0,
+                false,
+                &ok
+                );
+
+        if(!ok || choice.isEmpty()){
+            return {};
+        }
+
+        return QDir(folder_path).filePath(choice);
+    }
+}
+
 
 static QString load_text_file(const QString& path){
     QFile f(path);
@@ -70,7 +114,7 @@ MainWindow::MainWindow(QWidget* parent):
     tb->addWidget(division_box);
 
     tb->addSeparator();
-    tb->addAction("Run Script", this, &MainWindow::on_run_script);
+    //tb->addAction("Run Script", this, &MainWindow::on_run_script);
 
     //wire timeline <-> preview (shared playhead in ms)
     connect(m_timeline, &TimelineView::requestSeek, m_preview, &PreviewWidget::seekMs);
@@ -81,7 +125,7 @@ MainWindow::MainWindow(QWidget* parent):
 
     show_info("Ready", 3000);
 
-    connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
+    //connect(m_actions->act_run, &QAction::triggered, this, &MainWindow::on_run_script);
 }
 
 MainWindow::~MainWindow() = default;
@@ -109,8 +153,49 @@ void MainWindow::create_menus(){
     Menus::build(menuBar(), m_actions);
 }
 
-void MainWindow::on_new_project(){
+void MainWindow::on_new_project_from_beatmap(){
+    const QString folder = QFileDialog::getExistingDirectory(
+            this, 
+            "Select Beatmap Folder",
+            QDir::homePath()
+            );
 
+    if(folder.isEmpty()){
+        return;
+    }
+
+    const QStringList osu_files = find_osu_files(folder);
+    if(osu_files.isEmpty()){
+        show_error("No .osu files found in the selected folder", 5000);
+        return;
+    }
+
+    const QString osu_file_path = choose_osu_file(this, folder, osu_files);
+    if(osu_file_path.isEmpty()){
+        return;
+    }
+
+    const BeatmapImportInfo beatmap = parse_beatmap_metadata(osu_file_path);
+    if(!beatmap.is_valid()){
+        show_error("Beatmap metadata could not be parsed", 5000);
+        return;
+    }
+
+    m_asset_root = beatmap.beatmap_folder;
+    m_osu_file = osu_file_path;
+    m_audio_file = beatmap.audio_file;
+    m_background_file = beatmap.background_file;
+    m_bpm = beatmap.bpm;
+
+    m_timeline->setBpm(m_bpm);
+
+    show_info(
+            QString("Loaded beatmap: BPM %1, Audio: %2, Background: %3")
+            .arg(m_bpm)
+            .arg(m_audio_file)
+            .arg(m_background_file),
+            5000
+            );
 }
 
 void MainWindow::on_open_project(){
@@ -130,7 +215,12 @@ void MainWindow::on_run_script(){
     }
     result = "Script ran successfully";
 
-    m_preview->set_base_path(m_project_root.isEmpty() ? "." : m_project_root);
+    //m_preview->set_base_path(m_project_root.isEmpty() ? "." : m_project_root);
+    const QString base_path = !m_asset_root.isEmpty() ? m_asset_root 
+        : (m_project_root.isEmpty() ? "." : m_project_root);
+
+    m_preview->set_base_path(base_path);
+
 
     m_preview->set_scene(&m_script->current_scene());
     show_info(result, 3000);
