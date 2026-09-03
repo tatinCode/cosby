@@ -23,7 +23,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
-#include <QStream>
 
 namespace {
     QStringList find_osu_files(const QString& folder){
@@ -62,12 +61,13 @@ namespace {
 }
 
 
-static bool load_text_file(const QString& path, const QString& contents, QString* error){
+static bool load_text_file(const QString& path, QString& contents, QString* error){
     if(error){
         error->clear();
     }
 
     QFile file(path);
+
     if(!file.open(QIODevice::WriteOnly | QIODevice::Text)){
         if(error){
             *error = QString("Could not open script file: %1").arg(file.errorString());
@@ -76,7 +76,7 @@ static bool load_text_file(const QString& path, const QString& contents, QString
         return false;
     }
 
-    QStream stream(&file);
+    QTextStream stream(&file);
     contents = stream.readAll();
 
     return true;
@@ -209,7 +209,7 @@ void MainWindow::on_new_project_from_beatmap(){
 }
 
 void MainWindow::on_open_project(){
-    const QString path = QFileDialog::getOpenFileName(
+    const QString project_file_path = QFileDialog::getOpenFileName(
             this,
             "Open Project",
             QDir::homePath(),
@@ -254,7 +254,7 @@ void MainWindow::on_open_project(){
     if(!beatmap.is_valid()){
         show_error("Beatmap metadata could not be parsed", 5000);
 
-        return 5000;
+        return;
     }
 
     const QString script_file_path = QDir(project_root).filePath(project->script_file);
@@ -269,7 +269,7 @@ void MainWindow::on_open_project(){
     //Only replace the current project after everything loads successfully
     m_project_file_path = project_file_path;
     m_project_root = project_root;
-    m_script_relative_path = script_file_path;
+    m_script_relative_path = project->script_file;
 
     m_asset_root = beatmap.beatmap_folder;
     m_osu_file = beatmap.osu_file_path;
