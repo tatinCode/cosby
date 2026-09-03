@@ -68,7 +68,7 @@ static bool load_text_file(const QString& path, QString& contents, QString* erro
 
     QFile file(path);
 
-    if(!file.open(QIODevice::WriteOnly | QIODevice::Text)){
+    if(!file.open(QIODevice::ReadOnly | QIODevice::Text)){
         if(error){
             *error = QString("Could not open script file: %1").arg(file.errorString());
         }
