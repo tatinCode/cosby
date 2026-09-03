@@ -38,6 +38,8 @@ class MainWindow : public QMainWindow {
         void create_menus();
         void show_info(const QString& message, int timeout_ms);
         void show_error(const QString& message, int timeout_ms);
+      
+        bool open_project_file(const QString& project_file_path);
 
     private:
         //timeline
