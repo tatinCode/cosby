@@ -5,6 +5,7 @@
 #include "menus.h"
 #include "app_actions.h"
 #include "project/osu_parser.h"
+#include "project/project_file.h"
 
 #include <QDockWidget>
 #include <QToolBar>
@@ -22,6 +23,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
+#include <QStream>
 
 namespace {
     QStringList find_osu_files(const QString& folder){
@@ -60,16 +62,24 @@ namespace {
 }
 
 
-static QString load_text_file(const QString& path){
-    QFile f(path);
-    
-    if(!f.open(QIODevice::ReadOnly | QIODevice::Text)){
-        return {};
+static bool load_text_file(const QString& path, const QString& contents, QString* error){
+    if(error){
+        error->clear();
     }
 
-    QTextStream ts(&f);
+    QFile file(path);
+    if(!file.open(QIODevice::WriteOnly | QIODevice::Text)){
+        if(error){
+            *error = QString("Could not open script file: %1").arg(file.errorString());
+        }
 
-    return ts.readAll();
+        return false;
+    }
+
+    QStream stream(&file);
+    contents = stream.readAll();
+
+    return true;
 }
 
 MainWindow::MainWindow(QWidget* parent):
@@ -199,7 +209,81 @@ void MainWindow::on_new_project_from_beatmap(){
 }
 
 void MainWindow::on_open_project(){
+    const QString path = QFileDialog::getOpenFileName(
+            this,
+            "Open Project",
+            QDir::homePath(),
+            "Cosby Projects (*.cosby)"
+            );
 
+    if(project_file_path.isEmpty()){
+        return;
+    }
+
+    QString error;
+
+    const auto project = load_project_file(project_file_path, &error);
+
+    if(!project.has_value()){
+        show_error(error, 5000);
+
+        return;
+    }
+
+    const QString project_root = QFileInfo(project_file_path).absolutePath();
+
+    QString beatmap_file_path = project->beatmap_file;
+
+    if(QDir::isRelativePath(beatmap_file_path)){
+        beatmap_file_path = QDir(project_root).filePath(beatmap_file_path);
+    }
+
+    const QFileInfo beatmap_file_info(beatmap_file_path);
+
+    if(!beatmap_file_info.exists() ||
+            !beatmap_file_info.isFile() || 
+            !beatmap_file_info.isReadable()
+            ){
+        show_error(QString("Beatmap file could not be opened: %1").arg(beatmap_file_path), 5000);
+        
+        return;
+    }
+
+    const BeatmapImportInfo beatmap = parse_beatmap_metadata(beatmap_file_path);
+    
+    if(!beatmap.is_valid()){
+        show_error("Beatmap metadata could not be parsed", 5000);
+
+        return 5000;
+    }
+
+    const QString script_file_path = QDir(project_root).filePath(project->script_file);
+
+    QString script_contents;
+
+    if(!load_text_file(script_file_path, script_contents, &error)){
+        show_error(error, 5000);
+        return;
+    }
+
+    //Only replace the current project after everything loads successfully
+    m_project_file_path = project_file_path;
+    m_project_root = project_root;
+    m_script_relative_path = script_file_path;
+
+    m_asset_root = beatmap.beatmap_folder;
+    m_osu_file = beatmap.osu_file_path;
+    m_audio_file = beatmap.audio_file;
+    m_background_file = beatmap.background_file;
+    m_bpm = beatmap.bpm;
+
+    m_code->setPlainText(script_contents);
+    m_timeline->setBpm(m_bpm);
+    m_preview->set_base_path(m_asset_root);
+
+    setWindowTitle(QString("cosby - %1").arg(QFileInfo(m_project_file_path).baseName()));
+
+    show_info("Project loaded successfully", 3000);
 }
 
 void MainWindow::on_save_project(){
