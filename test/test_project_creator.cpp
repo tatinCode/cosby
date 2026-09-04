@@ -42,6 +42,9 @@ class TestProjectCreator : public QObject{
 
         private slots:
             void test_creates_project_from_directory();
+            void test_rejects_osu_outside_source();
+            void test_rejects_non_empty_project();
+            void test_rejects_overlapping_directories();
 };
 
 void TestProjectCreator::test_creates_project_from_directory(){
@@ -138,6 +141,155 @@ void TestProjectCreator::test_creates_project_from_directory(){
             project_data->script_file,
             QString("scripts/main.js")
             );
+}
+
+void TestProjectCreator::test_rejects_osu_outside_source(){
+    QTemporaryDir temporary_directory;
+
+    QVERIFY(temporary_directory.isValid());
+
+    const QString source_directory = temporary_directory.filePath("source");
+
+    const QString project_directory = temporary_directory.filePath("project");
+    
+    const QString outside_osu_file = temporary_directory.filePath("outside.osu");
+
+    QVERIFY(QDir().mkpath(source_directory));
+    QVERIFY(QDir().mkpath(project_directory));
+
+    QVERIFY(write_test_file(
+                outside_osu_file,
+                "osu file format v14\n"
+                ));
+
+    QString error;
+
+    const auto project_file = create_project_from_directory(
+            source_directory,
+            outside_osu_file,
+            project_directory,
+            &error
+            );
+
+    QVERIFY(!project_file.has_value());
+    QVERIFY(error.contains("inside"));
+
+    const QDir project(project_directory);
+
+    QVERIFY(!QFileInfo::exists(project.filePath("project.cosby")));
+    QVERIFY(!QFileInfo::exists(project.filePath("scripts")));
+    QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
+
+}
+
+void TestProjectCreator::test_rejects_non_empty_project(){
+    QTemporaryDir temporary_directory;
+
+    QVERIFY(temporary_directory.isValid());
+
+    const QString source_directory = temporary_directory.filePath("source");
+
+    const QString project_directory = temporary_directory.filePath("project");
+
+    const QString osu_file = QDir(source_directory).filePath("difficulty.osu");
+
+    const QString existing_file = QDir(project_directory).filePath("keep.txt");
+
+    QVERIFY(write_test_file(
+                osu_file,
+                "osu file format v14\n"
+                ));
+
+    QVERIFY(write_test_file(
+                existing_file,
+                "keep this file"
+                ));
+
+    QString error;
+
+    const auto project_file = create_project_from_directory(
+            source_directory,
+            osu_file,
+            project_directory,
+            &error
+            );
+
+    QVERIFY(!project_file.has_value());
+    QVERIFY(error.contains("not empty"));
+
+    QCOMPARE(
+            read_test_file(existing_file),
+            QByteArray("keep this file")
+            );
+
+    const QDir project(project_directory);
+
+    QVERIFY(!QFileInfo::exists(project.filePath("project.cosby")));
+    QVERIFY(!QFileInfo::exists(project.filePath("scripts")));
+    QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
+}
+
+void TestProjectCreator::test_rejects_overlapping_directories(){
+    QTemporaryDir temporary_directory;
+
+    QVERIFY(temporary_directory.isValid());
+
+    //Project directory inside the beatmap source
+    const QString first_source = temporary_directory.filePath("first-source");
+
+    const QString first_project = QDir(first_source).filePath("project");
+
+    const QString first_osu = QDir(first_source).filePath("difficulty.osu");
+
+    QVERIFY(write_test_file(
+                first_osu,
+                "osu file format v14\n"
+                ));
+
+    QVERIFY(QDir().mkpath(first_project));
+
+    QString error;
+
+    const auto first_result = create_project_from_directory(
+            first_source,
+            first_osu,
+            first_project,
+            &error
+            );
+
+    QVERIFY(!first_result.has_value());
+    QVERIFY(error.contains("separate"));
+    QVERIFY(!QFileInfo::exists(
+                QDir(first_project).filePath("project.cosby")
+                ));
+
+    //Beatmap source inside the project directory
+    const QString second_project = temporary_directory.filePath("second-project");
+
+    const QString second_source = QDir(second_project).filePath("source");
+
+    const QString second_osu = QDir(second_source).filePath("difficulty.osu");
+
+    QVERIFY(write_test_file(
+                second_osu,
+                "osu file format v14\n"
+                ));
+
+    const auto second_result = create_project_from_directory(
+            second_source,
+            second_osu,
+            second_project,
+            &error
+            );
+
+    QVERIFY(!second_result.has_value());
+    QVERIFY(error.contains("separate"));
+
+    const QDir project(second_project);
+
+    QVERIFY(!QFileInfo::exists(project.filePath("project.cosby")));
+    QVERIFY(!QFileInfo::exists(project.filePath("scripts")));
+    QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
 }
 
 QTEST_APPLESS_MAIN(TestProjectCreator)
