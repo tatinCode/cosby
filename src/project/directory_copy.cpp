@@ -18,7 +18,7 @@ namespace{
             const QString& message
             ){
         /**
-         * The destination did not exit before copying, so its safe to remove
+         * The destination did not exist before copying, so its safe to remove
          * files created by a failed copy.
          */
         QDir(destination_path).removeRecursively();
@@ -68,9 +68,9 @@ bool copy_directory(
     if(destination.compare(source, path_case) == 0 ||
             destination.startsWith(source_prefix, path_case)){
 
-            set_error(error, "Source and destination cannot be the same");
+        set_error(error, "Source and destination cannot be the same");
 
-            return false;
+        return false;
     }
 
     if(QFileInfo::exists(destination)){
@@ -148,7 +148,7 @@ bool copy_directory(
                     );
         }
     }
-    
+
     return true;
 }
 
