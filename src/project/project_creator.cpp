@@ -1,5 +1,8 @@
 #include "project/project_creator.h"
 
+#include "project/directory_copy.h"
+#include "project/project_file.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -199,7 +202,7 @@ std::optional<QString> create_project_from_directory(
     project_data.beatmap_file = project.relativeFilePath(relative_osu_file);
     project_data.script_file = script_relative_path;
 
-    const QString project_file_path = project.filePathb("project.cosby");
+    const QString project_file_path = project.filePath("project.cosby");
 
     if(!save_project_file(
                 project_file_path,
