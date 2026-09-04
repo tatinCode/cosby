@@ -112,5 +112,25 @@ set_target_properties(test_directory_copy PROPERTIES
 add_test(NAME test_directory_copy COMMAND test_directory_copy)
 ###
 
+#tests for project creator
+add_executable(test_project_creator
+    test/test_project_creator.cpp
+    src/project/project_creator.cpp
+    src/project/directory_copy.cpp
+    src/project/project_file.cpp
+)
+
+target_include_directories(test_project_creator PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_project_creator PRIVATE
+    Qt6::Test
+)
+
+set_target_properties(test_project_creator PROPERTIES
+    AUTOMOC ON
+)
+###
 
 

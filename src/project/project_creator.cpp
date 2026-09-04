@@ -104,6 +104,12 @@ std::optional<QString> create_project_from_directory(
         return std::nullopt;
     }
 
+    if(source_info.isSymLink()){
+        set_error(error, "Source beatmap directory cannot be a symbolic link");
+
+        return std::nullopt;
+    }
+
     const QFileInfo osu_info(selected_osu_file);
 
     if(!osu_info.exists() || !osu_info.isFile()){
@@ -121,6 +127,12 @@ std::optional<QString> create_project_from_directory(
     const QFileInfo project_info(project_directory);
 
     if(!project_info.exists() || !project_info.isDir()){
+        set_error(error, "Project directory does not exist");
+
+        return std::nullopt;
+    }
+
+    if(project_info.isSymLink()){
         set_error(error, "Project directory cannot be a symbolic link");
 
         return std::nullopt;
@@ -130,7 +142,7 @@ std::optional<QString> create_project_from_directory(
     const QString osu_file = osu_info.canonicalFilePath();
     const QString project_root = project_info.canonicalFilePath();
 
-    if(!same_or_child_path(source, project_root)){
+    if(!same_or_child_path(source, osu_file)){
         set_error(
                 error,
                 "Selected .osu file must be inside the source beatmap directory"
@@ -139,11 +151,11 @@ std::optional<QString> create_project_from_directory(
         return std::nullopt;
     }
 
-    if(same_or_child_path(osu_file, project_root) ||
-            same_or_child_path(project_root, osu_file)){
+    if(same_or_child_path(source, project_root) ||
+            same_or_child_path(project_root, source)){
         set_error(
                 error,
-                "Project and beatmap file cannot be the same"
+                "Project and beatmap directories must be separate"
                 );
 
         return std::nullopt;
@@ -199,7 +211,9 @@ std::optional<QString> create_project_from_directory(
     }
 
     ProjectData project_data;
-    project_data.beatmap_file = project.relativeFilePath(relative_osu_file);
+    project_data.beatmap_file = QDir::fromNativeSeparators(
+            project.relativeFilePath(copied_osu_file)
+            );
     project_data.script_file = script_relative_path;
 
     const QString project_file_path = project.filePath("project.cosby");
