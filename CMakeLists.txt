@@ -131,6 +131,8 @@ target_link_libraries(test_project_creator PRIVATE
 set_target_properties(test_project_creator PROPERTIES
     AUTOMOC ON
 )
+
+add_test(NAME test_project_creator COMMAND test_project_creator)
 ###
 
 
