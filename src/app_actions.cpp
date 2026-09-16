@@ -9,7 +9,7 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_new = new QAction("&New Project", this);
     act_new->setShortcut(QKeySequence::New);
 
-    act_new_from_beatmap = new QAction("New Project from &Beatmap", this);
+    act_new_from_beatmap = new QAction("New Project from Beatmap &Folder...", this);
 
     act_open = new QAction("&Open Project...", this);
     act_open->setShortcut(QKeySequence::Open);

@@ -164,15 +164,20 @@ void MainWindow::create_menus(){
 }
 
 void MainWindow::on_new_project_from_beatmap(){
-    const QString folder = QFileDialog::getExistingDirectory(
+    const QString project_directory = QFileDialog::getExistingDirectory(
             this, 
-            "Select Beatmap Folder",
+            "Select Empty Project Folder",
             QDir::homePath()
             );
 
-    if(folder.isEmpty()){
+    if(project_directory.isEmpty()){
         return;
     }
+
+    QString error;
+
+    const auto project_file_path = create_project_file(
+            project_directory, &error);
 
     const QStringList osu_files = find_osu_files(folder);
     if(osu_files.isEmpty()){
@@ -185,27 +190,6 @@ void MainWindow::on_new_project_from_beatmap(){
         return;
     }
 
-    const BeatmapImportInfo beatmap = parse_beatmap_metadata(osu_file_path);
-    if(!beatmap.is_valid()){
-        show_error("Beatmap metadata could not be parsed", 5000);
-        return;
-    }
-
-    m_asset_root = beatmap.beatmap_folder;
-    m_osu_file = osu_file_path;
-    m_audio_file = beatmap.audio_file;
-    m_background_file = beatmap.background_file;
-    m_bpm = beatmap.bpm;
-
-    m_timeline->setBpm(m_bpm);
-
-    show_info(
-            QString("Loaded beatmap: BPM %1, Audio: %2, Background: %3")
-            .arg(m_bpm)
-            .arg(m_audio_file)
-            .arg(m_background_file),
-            5000
-            );
 }
 
 void MainWindow::on_open_project(){
@@ -241,7 +225,6 @@ void MainWindow::on_run_script(){
         : (m_project_root.isEmpty() ? "." : m_project_root);
 
     m_preview->set_base_path(base_path);
-
 
     m_preview->set_scene(&m_script->current_scene());
     show_info(result, 3000);
