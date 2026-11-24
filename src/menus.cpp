@@ -17,6 +17,8 @@ namespace Menus{
 
         //project tab
         auto* proj = bar->addMenu("&Project");
+        proj->addAction(a->act_update_beatmap);
+        proj->addSeparator();
         proj->addAction(a->act_run);
         proj->addAction(a->act_build);
         proj->addAction(a->act_export);

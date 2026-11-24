@@ -118,6 +118,7 @@ add_executable(test_project_creator
     src/project/project_creator.cpp
     src/project/directory_copy.cpp
     src/project/project_file.cpp
+    src/project/path_utils.cpp
 )
 
 target_include_directories(test_project_creator PRIVATE
@@ -133,6 +134,31 @@ set_target_properties(test_project_creator PROPERTIES
 )
 
 add_test(NAME test_project_creator COMMAND test_project_creator)
+###
+
+#tests for beatmap updater
+add_executable(test_beatmap_updater
+    test/test_beatmap_updater.cpp
+    src/project/beatmap_updater.cpp
+    src/project/project_creator.cpp
+    src/project/directory_copy.cpp
+    src/project/project_file.cpp
+    src/project/path_utils.cpp
+)
+
+target_include_directories(test_beatmap_updater PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_beatmap_updater PRIVATE
+    Qt6::Test
+)
+
+set_target_properties(test_beatmap_updater PROPERTIES
+    AUTOMOC ON
+)
+
+add_test(NAME test_beatmap_updater COMMAND test_beatmap_updater)
 ###
 
 

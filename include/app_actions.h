@@ -19,6 +19,7 @@ public:
     QAction* act_exit = nullptr;
 
     //for the projects tab
+    QAction* act_update_beatmap = nullptr;
     QAction* act_run = nullptr;
     QAction* act_build = nullptr;
     QAction* act_export = nullptr;

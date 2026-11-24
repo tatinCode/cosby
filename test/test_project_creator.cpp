@@ -141,6 +141,11 @@ void TestProjectCreator::test_creates_project_from_directory(){
             project_data->script_file,
             QString("scripts/main.js")
             );
+
+    QCOMPARE(
+            project_data->source_directory,
+            QFileInfo(source_directory).canonicalFilePath()
+            );
 }
 
 void TestProjectCreator::test_rejects_osu_outside_source(){

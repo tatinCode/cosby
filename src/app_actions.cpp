@@ -21,6 +21,9 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_exit->setShortcut(QKeySequence::Quit);
 
     //project tab
+    act_update_beatmap = new QAction("&Update Beatmap from Source...", this);
+    act_update_beatmap->setStatusTip(tr("Replace the project's beatmap copy with a newer version"));
+
     act_run = new QAction(tr("&Run Script"), this);
     act_run->setShortcut(QKeySequence(Qt::Key_F5));
     act_run->setStatusTip(tr("Evaluate the current script and refresh the preview"));
@@ -46,6 +49,7 @@ void AppActions::connect_slots(MainWindow* r){ //r is the receiver
     QObject::connect(act_exit, &QAction::triggered, r, &MainWindow::close);
 
     //project tab
+    QObject::connect(act_update_beatmap, &QAction::triggered, r, &MainWindow::on_update_beatmap);
     QObject::connect(act_run, &QAction::triggered, r, &MainWindow::on_run_script);
     QObject::connect(act_build, &QAction::triggered, r, &MainWindow::on_build_json);
     QObject::connect(act_export, &QAction::triggered, r, &MainWindow::on_export_osb);
