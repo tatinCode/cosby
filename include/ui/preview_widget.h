@@ -14,14 +14,18 @@ class PreviewWidget : public QWidget {
     public:
         explicit PreviewWidget(QWidget* parent = nullptr);
 
-        void play();
-        void stop();
+        void play();                // resumes from the current time
+        void pause();
+        void toggle_playback();
+        void stop();                // pause and go back to 0
+        bool is_playing() const;
         void set_scene(const scene* sc);
         void seekMs(qint64 ms);
         void set_base_path(const QString& path);
 
     Q_SIGNALS:
         void timeChanged(qint64 ms);
+        void playingChanged(bool playing);
 
     protected:
         void paintEvent(QPaintEvent*) override;
@@ -30,6 +34,7 @@ class PreviewWidget : public QWidget {
         const scene* m_scene_ref = nullptr;
         bool m_playing;
         qint64 m_time_ms {};
+        qint64 m_play_start_ms {};  // m_time_ms when playback (re)started
         QElapsedTimer m_clock;
         QTimer m_tick;          //60 fps UI tick
 

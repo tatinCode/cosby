@@ -14,7 +14,11 @@ class NativeConsole : public QObject{
         
         Q_INVOKABLE void print(const QString& s){
             qInfo().noquote() << s;
+            emit printed(s);
         }
+
+    signals:
+        void printed(const QString& text);
 };
 
 

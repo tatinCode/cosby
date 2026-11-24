@@ -5,6 +5,8 @@
 #include <QPainter>
 #include <QDir>
 
+#include <algorithm>
+
 PreviewWidget::PreviewWidget(QWidget* parent):
     QWidget(parent),
     m_playing(false),
@@ -12,7 +14,7 @@ PreviewWidget::PreviewWidget(QWidget* parent):
     setAutoFillBackground(false);
     connect(&m_tick, &QTimer::timeout, this, [this]{
             if(m_playing){
-            m_time_ms = m_clock.elapsed();
+            m_time_ms = m_play_start_ms + m_clock.elapsed();
             emit timeChanged(m_time_ms);
             update();
             }
@@ -21,16 +23,55 @@ PreviewWidget::PreviewWidget(QWidget* parent):
 }
 
 void PreviewWidget::play(){
-    m_playing = true;
+    if(m_playing){
+        return;
+    }
+
+    // Resume from the current position instead of 0.
+    m_play_start_ms = m_time_ms;
     m_clock.restart();
+    m_playing = true;
+
+    emit playingChanged(true);
+}
+
+void PreviewWidget::pause(){
+    if(!m_playing){
+        return;
+    }
+
+    m_time_ms = m_play_start_ms + m_clock.elapsed();
+    m_playing = false;
+
+    emit playingChanged(false);
+}
+
+void PreviewWidget::toggle_playback(){
+    if(m_playing){
+        pause();
+    }
+    else{
+        play();
+    }
 }
 
 void PreviewWidget::stop(){
-    m_playing = false;
+    pause();
+    seekMs(0);
+}
+
+bool PreviewWidget::is_playing() const{
+    return m_playing;
 }
 
 void PreviewWidget::seekMs(qint64 ms){
-    m_time_ms = ms;
+    m_time_ms = std::max<qint64>(0, ms);
+
+    // Keep playing from the new position.
+    if(m_playing){
+        m_play_start_ms = m_time_ms;
+        m_clock.restart();
+    }
 
     emit timeChanged(m_time_ms);
     update();
@@ -47,6 +88,8 @@ void PreviewWidget::paintEvent(QPaintEvent*){
     p.fillRect(rect(), QColor(18, 18, 22));
 
     if(!m_scene_ref){
+        p.setPen(QColor(110, 110, 120));
+        p.drawText(rect(), Qt::AlignCenter, tr("Run the script (F5) to preview the storyboard"));
         return;
     }
 

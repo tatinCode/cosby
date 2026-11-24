@@ -11,6 +11,7 @@ script_host::script_host(QObject* parent) : QObject(parent){
     //
     //not very simple now lmaooo
     auto* native = new NativeConsole(&eng_);
+    connect(native, &NativeConsole::printed, this, &script_host::output);
 
     eng_.globalObject().setProperty("__native", eng_.newQObject(native));
 
@@ -34,28 +35,38 @@ script_host::script_host(QObject* parent) : QObject(parent){
             );
 }
 
-QString script_host::run(const QString& source, const QString& preload_source){
+std::optional<script_error> script_host::evaluate(const QString& source, const QString& preload_source){
     sc_ = scene{};  //resets the scene every start
 
     if(!preload_source.isEmpty()){
         QJSValue pre = eng_.evaluate(preload_source, "<preload>");
 
         if(pre.isError()){
-            return QString("Preload error: %1 (line %2)")
-                .arg(pre.toString())
-                .arg(pre.property("lineNumber").toInt());
+            return script_error{pre.toString(), pre.property("lineNumber").toInt(), true};
         }
     }
 
     QJSValue res = eng_.evaluate(source, "<script>");
 
     if(res.isError()){
-        return QString("Error: %1 (line %2)")
-            .arg(res.toString())
-            .arg(res.property("lineNumber").toInt());
+        return script_error{res.toString(), res.property("lineNumber").toInt(), false};
     }
 
-    return {};
+    return std::nullopt;
+}
+
+QString script_host::run(const QString& source, const QString& preload_source){
+    const auto error = evaluate(source, preload_source);
+
+    if(!error.has_value()){
+        return {};
+    }
+
+    // One multi-arg call: chained .arg() would substitute into a message containing "%3".
+    return QString("%1: %2 (line %3)").arg(
+            error->in_preload ? QStringLiteral("Preload error") : QStringLiteral("Error"),
+            error->message,
+            QString::number(error->line));
 }
 
 

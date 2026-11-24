@@ -10,7 +10,9 @@ namespace Menus{
         auto* file = bar->addMenu("&File");
         file->addAction(a->act_new);
         file->addAction(a->act_new_from_beatmap);
+        file->addSeparator();
         file->addAction(a->act_open);
+        a->menu_recent = file->addMenu("Open &Recent");
         file->addAction(a->act_save);
         file->addSeparator();
         file->addAction(a->act_exit);
@@ -22,6 +24,14 @@ namespace Menus{
         proj->addAction(a->act_run);
         proj->addAction(a->act_build);
         proj->addAction(a->act_export);
+
+        //playback tab
+        auto* playback = bar->addMenu("P&layback");
+        playback->addAction(a->act_play_pause);
+        playback->addAction(a->act_stop);
+
+        //view tab (dock toggles are added by MainWindow)
+        a->menu_view = bar->addMenu("&View");
 
         //help tab
         auto* help = bar->addMenu("&Help");
