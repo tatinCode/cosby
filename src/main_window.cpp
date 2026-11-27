@@ -9,6 +9,9 @@
 #include "project/project_creator.h"
 #include "project/beatmap_updater.h"
 #include "project/path_utils.h"
+#include "project/asset_paths.h"
+#include "project/storyboard_export.h"
+#include "core/osb_writer.h"
 #include "ui/script_editor.h"
 #include "ui/script_editor_factory.h"
 
@@ -33,6 +36,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMenu>
+#include <QPushButton>
 #include <QScreen>
 #include <QSettings>
 #include <QStyle>
@@ -273,7 +277,6 @@ void MainWindow::create_toolbar(){
     spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     tb->addWidget(spacer);
 
-    tb->addAction(m_actions->act_build);
     tb->addAction(m_actions->act_export);
 }
 
@@ -311,6 +314,11 @@ void MainWindow::append_output(const QString& text, OutputKind kind, int line){
             item->setForeground(QColor(0x80, 0x80, 0x88));
             break;
         case OutputKind::print:
+            break;
+        case OutputKind::warning:
+            item->setForeground(QColor(0xe5, 0xc0, 0x7b));
+            item->setIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+            item->setData(Qt::UserRole, line);
             break;
         case OutputKind::error:
             item->setForeground(QColor(0xf4, 0x87, 0x71));
@@ -618,7 +626,7 @@ void MainWindow::on_run_script(){
     });
 }
 
-void MainWindow::run_script(){
+bool MainWindow::run_script(){
     // Each run starts a fresh log; print() output arrives during evaluate().
     m_output->clear();
 
@@ -643,15 +651,11 @@ void MainWindow::run_script(){
         append_output(message, OutputKind::error, in_script ? error->line : 0);
         m_dock_output->show();
         m_dock_output->raise();
-        return;
+        return false;
     }
 
     m_editor->show_errors({});
 
-    const QString base_path = !m_asset_root.isEmpty() ? m_asset_root
-        : (m_project_root.isEmpty() ? "." : m_project_root);
-
-    m_preview->set_base_path(base_path);
     m_preview->set_scene(&m_script->current_scene());
     m_timeline->setScene(&m_script->current_scene());
 
@@ -659,20 +663,143 @@ void MainWindow::run_script(){
     const QString result = tr("Script ran successfully: %n sprite(s)", nullptr, int(sprite_count));
 
     show_info(result);
-}
-
-void MainWindow::on_build_json(){
-
+    return true;
 }
 
 void MainWindow::on_export_osb(){
+    if(m_project_root.isEmpty()){
+        show_error("Open or create a project before exporting");
+        return;
+    }
 
+    after_editor_sync([this]{
+        export_storyboard();
+    });
+}
+
+void MainWindow::export_storyboard(){
+    // Export what the script makes now, not what it made at the last run.
+    if(!run_script()){
+        show_error("Nothing exported: fix the script error first");
+        return;
+    }
+
+    const scene& sc = m_script->current_scene();
+
+    QString error;
+    const auto project = load_project_file(m_project_file_path, &error);
+
+    if(!project.has_value()){
+        report_error("Export Failed", error);
+        return;
+    }
+
+    // The folder the beatmap came from is where osu! reads it. lazer's
+    // external-edit folder is temporary, so it may be gone.
+    QString target = project->source_directory;
+
+    if(!QFileInfo(target).isDir()){
+        target = QFileDialog::getExistingDirectory(
+                this,
+                "Choose the Beatmap Folder to Export To",
+                QDir::homePath()
+                );
+
+        if(target.isEmpty()){
+            return;
+        }
+    }
+
+    const QString assets = QDir(m_project_root).filePath(assets_folder_name);
+
+    const auto plan = plan_export(sc, target, osb_file_name(m_osu_file),
+            m_project_root, assets, m_asset_root, &error);
+
+    if(!plan.has_value()){
+        report_error("Export Failed", error);
+        return;
+    }
+
+    // Never overwrite silently.
+    if(plan->replaces_files() || !plan->other_osb_files.isEmpty()){
+        QStringList replaced;
+
+        if(plan->osb_replaces){
+            replaced << QFileInfo(plan->osb_path).fileName();
+        }
+
+        for(const asset_copy& copy : plan->copies){
+            if(copy.replaces){
+                replaced << copy.path;
+            }
+        }
+
+        QString details;
+
+        if(!replaced.isEmpty()){
+            details += "This replaces:\n    " + replaced.join("\n    ");
+        }
+
+        if(!plan->other_osb_files.isEmpty()){
+            if(!details.isEmpty()){
+                details += "\n\n";
+            }
+
+            details += QString("Also in this folder: %1\nosu!lazer may load that instead of %2.")
+                .arg(plan->other_osb_files.join(", "), QFileInfo(plan->osb_path).fileName());
+        }
+
+        QMessageBox box(QMessageBox::Question, "Export Storyboard",
+                QString("Export the storyboard to\n%1?").arg(QDir::toNativeSeparators(plan->target_folder)),
+                QMessageBox::Cancel, this);
+        box.setInformativeText(details);
+        QPushButton* export_button = box.addButton("Export", QMessageBox::AcceptRole);
+        box.setDefaultButton(export_button);
+        box.exec();
+
+        if(box.clickedButton() != export_button){
+            return;
+        }
+    }
+
+    QList<osb_warning> warnings;
+    const QString osb_text = write_osb(sc, &warnings);
+
+    if(!apply_export(*plan, osb_text, &error)){
+        report_error("Export Failed", error);
+        return;
+    }
+
+    for(const QString& path : plan->missing){
+        warnings.append({QString("%1: image not found in assets/ or the beatmap folder; "
+                                 "osu! will show nothing").arg(path), 0});
+    }
+
+    if(sc.sprites.isEmpty()){
+        warnings.append({"The storyboard is empty: the script made no sprites", 0});
+    }
+
+    for(const osb_warning& warning : warnings){
+        append_output(warning.message, OutputKind::warning, warning.line);
+    }
+
+    show_info(tr("Exported %n sprite(s) to %1", nullptr, int(sc.sprites.size()))
+            .arg(QDir::toNativeSeparators(plan->osb_path)));
+
+    if(!plan->copies.isEmpty()){
+        show_info(tr("Copied %n image(s) into the beatmap folder", nullptr, int(plan->copies.size())));
+    }
+
+    if(!warnings.isEmpty()){
+        m_dock_output->show();
+        m_dock_output->raise();
+    }
 }
 
 //about tab
 void MainWindow::on_about(){
     QMessageBox::about(this, "About cosby",
-            QString("cosby storyboard editor\nC++, JSON-based pipeline\n\nScript editor: %1")
+            QString("cosby storyboard editor\nWrite osu! storyboards in JavaScript, export them as .osb\n\nScript editor: %1")
                 .arg(m_editor->backend_name()));
 }
 
@@ -853,6 +980,10 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     //Only replace the current project after everything loads successfully
     m_project_file_path = project_file_path;
     m_project_root = project_root;
+
+    // Projects from before assets/ existed get one, so there's an obvious
+    // place for storyboard images (failing is harmless: nothing is in it).
+    QDir(project_root).mkpath(assets_folder_name);
     m_script_relative_path = project->script_file;
 
     // Drop everything that belonged to the previous project.
@@ -886,7 +1017,7 @@ void MainWindow::apply_beatmap(const BeatmapImportInfo& beatmap){
 
     m_timeline->setBpm(m_bpm);
     m_timeline->setBeatOffsetMs(beatmap.beat_offset_ms);
-    m_preview->set_base_path(m_asset_root);
+    m_preview->set_asset_folders(asset_folders(m_project_root, m_asset_root));
 
     // The difficulty (in the title) and BPM can change on a beatmap update.
     update_window_title();
@@ -956,6 +1087,7 @@ void MainWindow::update_action_state(){
 
     m_actions->act_save->setEnabled(has_project);
     m_actions->act_update_beatmap->setEnabled(has_project);
+    m_actions->act_export->setEnabled(has_project);
 }
 
 

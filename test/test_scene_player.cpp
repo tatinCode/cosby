@@ -17,15 +17,43 @@ class TestScenePlayer : public QObject{
         void test_eval_sprite_move();
         void test_draw_uses_layer_order();
         void test_draw_skips_hidden_layers();
+        void test_visible_only_during_commands();
+        void test_start_value_before_first_command();
+        void test_latest_started_command_wins();
+        void test_move_x_and_move_share_x();
+        void test_permanent_and_timed_flags();
+        void test_color_tints_images();
 };
 
 namespace {
+    command fade(int t0, int t1, double v0, double v1){
+        command cmd;
+        cmd.type = cmd_t::fade;
+        cmd.easing = "Linear";
+        cmd.t0 = t0;
+        cmd.t1 = t1;
+        cmd.v0 = v0;
+        cmd.v1 = v1;
+        return cmd;
+    }
+
+    command make_scale(int t0, int t1, double v0, double v1){
+        command cmd = fade(t0, t1, v0, v1);
+        cmd.type = cmd_t::scale;
+        return cmd;
+    }
+
     // A 64x64 foreground sprite created *before* a background one, both
     // covering the middle of a 128x128 image.
     QImage render(unsigned visible_layers){
         scene sc;
         sc.add_sprite("front.png", layer_t::foreground, origin_t::center, 64, 64);
         sc.add_sprite("back.png", layer_t::background, origin_t::center, 64, 64);
+
+        // osu! only shows sprites that have commands.
+        for(auto& s : sc.sprites){
+            s.cmds.push_back(fade(0, 1000, 1.0, 1.0));
+        }
 
         QPixmap front(64, 64);
         front.fill(Qt::blue);
@@ -147,6 +175,124 @@ void TestScenePlayer::test_eval_sprite_move(){
     state = eval_sprite(s, 1000);
     QCOMPARE(state.x, 200.0);
     QCOMPARE(state.y, 300.0);
+}
+
+void TestScenePlayer::test_visible_only_during_commands(){
+    sprite s;
+    QVERIFY(!eval_sprite(s, 0).visible);       // no commands: never shown
+
+    s.cmds.push_back(fade(1000, 2000, 1.0, 1.0));
+    s.cmds.push_back(fade(3000, 4000, 1.0, 0.0));
+
+    QVERIFY(!eval_sprite(s, 999).visible);
+    QVERIFY(eval_sprite(s, 1000).visible);
+    QVERIFY(eval_sprite(s, 2500).visible);     // gap between commands
+    QVERIFY(eval_sprite(s, 4000).visible);
+    QVERIFY(!eval_sprite(s, 4001).visible);
+}
+
+void TestScenePlayer::test_start_value_before_first_command(){
+    sprite s;
+    s.cmds.push_back(fade(0, 100, 1.0, 1.0));
+    s.cmds.push_back(make_scale(500, 1000, 0.25, 2.0));
+
+    // The sprite exists from 0; its scale already is the first scale's start.
+    QCOMPARE(eval_sprite(s, 0).scale, 0.25);
+    QCOMPARE(eval_sprite(s, 750).scale, 1.125);
+    QCOMPARE(eval_sprite(s, 1000).scale, 2.0);
+}
+
+void TestScenePlayer::test_latest_started_command_wins(){
+    sprite s;
+    s.cmds.push_back(fade(0, 1000, 0.0, 1.0));
+    s.cmds.push_back(fade(2000, 3000, 0.5, 0.0));
+
+    QCOMPARE(eval_sprite(s, 1500).alpha, 1.0);    // first holds its end value
+    QCOMPARE(eval_sprite(s, 2000).alpha, 0.5);
+    QCOMPARE(eval_sprite(s, 2500).alpha, 0.25);
+}
+
+void TestScenePlayer::test_move_x_and_move_share_x(){
+    sprite s;
+    s.x = 10;
+    s.y = 20;
+
+    command move;
+    move.type = cmd_t::move;
+    move.easing = "Linear";
+    move.t0 = 0;
+    move.t1 = 1000;
+    move.x0 = 0;
+    move.y0 = 0;
+    move.x1 = 100;
+    move.y1 = 200;
+    s.cmds.push_back(move);
+
+    command move_x;
+    move_x.type = cmd_t::move_x;
+    move_x.easing = "Linear";
+    move_x.t0 = 500;
+    move_x.t1 = 500;
+    move_x.v0 = move_x.v1 = 400;
+    s.cmds.push_back(move_x);
+
+    const auto before = eval_sprite(s, 250);
+    QCOMPARE(before.x, 25.0);
+    QCOMPARE(before.y, 50.0);
+
+    const auto after = eval_sprite(s, 750);
+    QCOMPARE(after.x, 400.0);                   // moveX took over x
+    QCOMPARE(after.y, 150.0);                   // y still follows move
+}
+
+void TestScenePlayer::test_permanent_and_timed_flags(){
+    sprite s;
+    s.cmds.push_back(fade(0, 3000, 1.0, 1.0));
+
+    command flip;
+    flip.type = cmd_t::flip_h;
+    flip.t0 = 1000;
+    flip.t1 = 1000;                 // permanent
+    s.cmds.push_back(flip);
+
+    command add;
+    add.type = cmd_t::additive;
+    add.t0 = 1000;
+    add.t1 = 2000;                  // only while it runs
+    s.cmds.push_back(add);
+
+    QVERIFY(!eval_sprite(s, 999).flip_h);
+    QVERIFY(eval_sprite(s, 2500).flip_h);
+    QVERIFY(eval_sprite(s, 1500).additive);
+    QVERIFY(!eval_sprite(s, 2000).additive);
+}
+
+void TestScenePlayer::test_color_tints_images(){
+    scene sc;
+    sc.add_sprite("white.png", layer_t::foreground, origin_t::center, 16, 16);
+
+    command colour;
+    colour.type = cmd_t::color;
+    colour.easing = "Linear";
+    colour.t0 = 0;
+    colour.t1 = 1000;
+    colour.r0 = colour.r1 = 255;
+    colour.g0 = colour.g1 = 0;
+    colour.b0 = colour.b1 = 0;
+    sc.sprites[0].cmds.push_back(colour);
+
+    QPixmap white(32, 32);
+    white.fill(Qt::white);
+    const QHash<QString, QPixmap> pixmaps{{"white.png", white}};
+
+    QImage image(32, 32, QImage::Format_ARGB32);
+    image.fill(Qt::black);
+
+    QPainter p(&image);
+    draw_scene(p, sc, 500, pixmaps, all_layers_mask);
+    p.end();
+
+    QCOMPARE(QColor(image.pixel(16, 16)), QColor(Qt::red));
 }
 
 COSBY_TEST(TestScenePlayer)

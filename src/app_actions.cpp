@@ -43,8 +43,8 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_run->setToolTip(tr("Run the script and refresh the preview (F5)"));
     act_run->setIcon(style->standardIcon(QStyle::SP_MediaSeekForward));
     //setIcon(Qicon(":/icon/run.svg"));     //<-for the icon
-    act_build = new QAction("&Build JSON", this);
-    act_export = new QAction("E&xport &.osb", this);
+    act_export = new QAction(tr("E&xport .osb"), this);
+    act_export->setToolTip(tr("Write the storyboard into the beatmap folder in osu! (asks before replacing files)"));
 
     //playback; Space only while the preview or timeline has focus
     //(MainWindow adds the action to those widgets), so it never eats
@@ -80,7 +80,6 @@ void AppActions::connect_slots(MainWindow* r){ //r is the receiver
     //project tab
     QObject::connect(act_update_beatmap, &QAction::triggered, r, &MainWindow::on_update_beatmap);
     QObject::connect(act_run, &QAction::triggered, r, &MainWindow::on_run_script);
-    QObject::connect(act_build, &QAction::triggered, r, &MainWindow::on_build_json);
     QObject::connect(act_export, &QAction::triggered, r, &MainWindow::on_export_osb);
 
     //playback

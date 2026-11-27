@@ -40,7 +40,6 @@ class MainWindow : public QMainWindow {
 
         //project tab
         void on_update_beatmap();
-        void on_build_json();
         void on_export_osb();
 
         //about tab
@@ -61,7 +60,7 @@ class MainWindow : public QMainWindow {
         void report_error(const QString& title, const QString& message);
 
         //output panel
-        enum class OutputKind { info, print, error };
+        enum class OutputKind { info, print, warning, error };
         void append_output(const QString& text, OutputKind kind, int line = 0);
         void on_output_activated(QListWidgetItem* item);
 
@@ -85,7 +84,9 @@ class MainWindow : public QMainWindow {
 
         void new_project_from_beatmap();
         void open_project();
-        void run_script();
+        // Runs the editor's script; false (errors shown) when it fails.
+        bool run_script();
+        void export_storyboard();
 
         // Writes the editor text to the project's script file.
         bool save_script();

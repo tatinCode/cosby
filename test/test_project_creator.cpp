@@ -118,6 +118,7 @@ void TestProjectCreator::test_creates_project_from_directory(){
     QVERIFY(QFileInfo::exists(copied_background_file));
     QVERIFY(QFileInfo::exists(copied_hidden_file));
     QVERIFY(QFileInfo::exists(script_file));
+    QVERIFY(QFileInfo(project.filePath("assets")).isDir());
 
     QCOMPARE(
             read_test_file(copied_audio_file),
@@ -185,6 +186,7 @@ void TestProjectCreator::test_rejects_osu_outside_source(){
     QVERIFY(!QFileInfo::exists(project.filePath("project.cosby")));
     QVERIFY(!QFileInfo::exists(project.filePath("scripts")));
     QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
+    QVERIFY(!QFileInfo::exists(project.filePath("assets")));
 
 }
 
@@ -233,6 +235,7 @@ void TestProjectCreator::test_rejects_non_empty_project(){
     QVERIFY(!QFileInfo::exists(project.filePath("project.cosby")));
     QVERIFY(!QFileInfo::exists(project.filePath("scripts")));
     QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
+    QVERIFY(!QFileInfo::exists(project.filePath("assets")));
 }
 
 void TestProjectCreator::test_rejects_overlapping_directories(){
@@ -296,6 +299,7 @@ void TestProjectCreator::test_rejects_overlapping_directories(){
     QVERIFY(!QFileInfo::exists(project.filePath("project.cosby")));
     QVERIFY(!QFileInfo::exists(project.filePath("scripts")));
     QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
+    QVERIFY(!QFileInfo::exists(project.filePath("assets")));
 }
 
 COSBY_TEST(TestProjectCreator)

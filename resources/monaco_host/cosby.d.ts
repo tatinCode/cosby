@@ -121,7 +121,9 @@ interface CosbySprite {
 
 interface CosbySceneApi {
     /**
-     * Adds a sprite. `path` is relative to the beatmap folder.
+     * Adds a sprite. `path` is relative to the beatmap folder, e.g. "sb/star.png".
+     * Cosby looks for it in the project's assets/ folder first, then in the
+     * beatmap copy; export copies images from assets/ into the beatmap folder.
      * @example SceneApi.sprite("sb/star.png", { layer: "Foreground", position: [320, 240] })
      */
     sprite(path: string, options?: CosbySpriteOptions): CosbySprite;
