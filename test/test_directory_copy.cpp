@@ -1,4 +1,5 @@
 #include "project/directory_copy.h"
+#include "cosby_test.h"
 
 #include <QtTest>
 #include <QDir>
@@ -132,7 +133,7 @@ void TestDirectoryCopy::test_destination_inside_source(){
     QVERIFY(!QFileInfo::exists(destination));
 }
 
-QTEST_APPLESS_MAIN(TestDirectoryCopy)
+COSBY_TEST(TestDirectoryCopy)
 
 #include "test_directory_copy.moc"
 

@@ -14,7 +14,7 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_new->setShortcut(QKeySequence::New);
     //not implemented yet: projects are created from a beatmap for now
     act_new->setEnabled(false);
-    act_new->setStatusTip(tr("Not available yet: use New Project from Beatmap Folder"));
+    act_new->setToolTip(tr("Not available yet: use New Project from Beatmap Folder"));
 
     act_new_from_beatmap = new QAction("New Project from Beatmap &Folder...", this);
     act_new_from_beatmap->setIcon(style->standardIcon(QStyle::SP_FileDialogNewFolder));
@@ -26,7 +26,7 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_save = new QAction("&Save", this);
     act_save->setShortcut(QKeySequence::Save);
     act_save->setIcon(style->standardIcon(QStyle::SP_DialogSaveButton));
-    act_save->setStatusTip(tr("Save the script"));
+    act_save->setToolTip(tr("Save the script (Ctrl+S)"));
 
     act_clear_recent = new QAction("&Clear Recent Projects", this);
 
@@ -35,13 +35,12 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
 
     //project tab
     act_update_beatmap = new QAction("&Update Beatmap from Source...", this);
-    act_update_beatmap->setStatusTip(tr("Replace the project's beatmap copy with a newer version"));
+    act_update_beatmap->setToolTip(tr("Replace the project's beatmap copy with a newer version"));
     act_update_beatmap->setIcon(style->standardIcon(QStyle::SP_BrowserReload));
 
     act_run = new QAction(tr("&Run Script"), this);
     act_run->setShortcut(QKeySequence(Qt::Key_F5));
-    act_run->setStatusTip(tr("Evaluate the current script and refresh the preview"));
-    act_run->setToolTip(tr("Run Script (F5)"));
+    act_run->setToolTip(tr("Run the script and refresh the preview (F5)"));
     act_run->setIcon(style->standardIcon(QStyle::SP_MediaSeekForward));
     //setIcon(Qicon(":/icon/run.svg"));     //<-for the icon
     act_build = new QAction("&Build JSON", this);

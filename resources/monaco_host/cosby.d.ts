@@ -29,6 +29,8 @@ interface CosbySpriteOptions {
     x?: number;
     /** Overrides position[1]. */
     y?: number;
+    /** Label shown in the timeline instead of the file name. */
+    name?: string;
 }
 
 interface CosbyTimed {

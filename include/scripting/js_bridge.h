@@ -28,14 +28,24 @@ class js_bridge : public QObject{
     public:
         js_bridge(QJSEngine* eng, scene* sc, QObject* parent = nullptr);
 
-        Q_INVOKABLE QObject* add_sprite(const QString& path, const QString& layer,
-                const QString& origin, double x, double y);
+        // Clears the scene for a new run; handles from older runs go stale.
+        void begin_run();
 
-        Q_INVOKABLE QObject* sprite(const QString& path, const QJSValue& opts);
+        // nullptr when `generation` is not the current run or index is out of range.
+        ::sprite* sprite_for(qsizetype index, quint64 generation);
+
+        // Called by the JS SceneApi wrapper (see script_host.cpp), which adds the
+        // script line of the call. Proxies are returned without a parent, so the
+        // JS garbage collector owns them.
+        Q_INVOKABLE QObject* add_sprite(const QString& path, const QString& layer,
+                const QString& origin, double x, double y, int source_line = 0);
+
+        Q_INVOKABLE QObject* sprite(const QString& path, const QJSValue& opts, int source_line = 0);
 
     private:
         QJSEngine* eng_;
         scene* sc_;
+        quint64 generation_ = 0;
 
         layer_t to_layer(const QString& s);
         origin_t to_origin(const QString& s);

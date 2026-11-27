@@ -10,6 +10,9 @@ struct BeatmapImportInfo{
 
     double bpm = 180.0;
 
+    // Time of the first uninherited timing point: where the beat grid starts.
+    double beat_offset_ms = 0.0;
+
     bool is_valid() const{
         return !beatmap_folder.isEmpty() && !osu_file_path.isEmpty();
     }

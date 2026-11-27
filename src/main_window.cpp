@@ -20,7 +20,6 @@
 #include <QSaveFile>
 #include <QTimer>
 #include <QMessageBox>
-#include <QStatusBar>
 #include <QFile>
 #include <QFileInfo>
 #include <QTextStream>
@@ -194,22 +193,19 @@ MainWindow::MainWindow(QWidget* parent):
     m_timeline->addAction(m_actions->act_play_pause);
 
     create_toolbar();
-    create_status_bar();
 
     //wire timeline <-> preview (shared playhead in ms)
     connect(m_timeline, &TimelineView::requestSeek, m_preview, &PreviewWidget::seekMs);
     connect(m_preview, &PreviewWidget::timeChanged, m_timeline, &TimelineView::setPlayheadMs);
-    connect(m_preview, &PreviewWidget::timeChanged, this, [this](qint64 ms){
-        const qint64 minutes = ms / 60000;
-        const qint64 seconds = (ms / 1000) % 60;
-        const qint64 millis = ms % 1000;
-
-        m_status_time->setText(QString("%1:%2.%3")
-                .arg(minutes, 2, 10, QChar('0'))
-                .arg(seconds, 2, 10, QChar('0'))
-                .arg(millis, 3, 10, QChar('0')));
-    });
     connect(m_preview, &PreviewWidget::playingChanged, this, &MainWindow::update_playback_action);
+
+    //timeline -> code and preview
+    connect(m_timeline, &TimelineView::sourceLineActivated, this, [this](int line){
+        m_dock_code->show();
+        m_dock_code->raise();
+        m_editor->go_to_line(line);
+    });
+    connect(m_timeline, &TimelineView::layerVisibilityChanged, m_preview, &PreviewWidget::set_layer_visible);
 
     connect(m_script, &script_host::output, this, [this](const QString& text){
         append_output(text, OutputKind::print);
@@ -227,13 +223,10 @@ MainWindow::MainWindow(QWidget* parent):
 
     update_window_title();
     update_action_state();
-    update_status_fields();
+    update_bpm_display();
 
     if(!editor_notice.isEmpty()){
-        show_info(editor_notice, 8000);
-    }
-    else{
-        show_info("Ready", 3000);
+        show_info(editor_notice);
     }
 }
 
@@ -254,6 +247,12 @@ void MainWindow::create_toolbar(){
     tb->addAction(m_actions->act_play_pause);
     tb->addAction(m_actions->act_stop);
     tb->addSeparator();
+
+    //beatmap BPM (hidden until a project is open)
+    m_bpm_label = new QLabel(tb);
+    m_bpm_label->setObjectName("toolbar_bpm");
+    m_bpm_label->setToolTip(tr("Beatmap BPM"));
+    m_bpm_action = tb->addWidget(m_bpm_label);
 
     //beat division selector
     auto* snap_label = new QLabel(tr("Snap "), tb);
@@ -276,24 +275,6 @@ void MainWindow::create_toolbar(){
 
     tb->addAction(m_actions->act_build);
     tb->addAction(m_actions->act_export);
-}
-
-void MainWindow::create_status_bar(){
-    auto make_label = [this](const QString& tooltip){
-        auto* label = new QLabel(this);
-        label->setToolTip(tooltip);
-        statusBar()->addPermanentWidget(label);
-        return label;
-    };
-
-    m_status_project = make_label(tr("Project"));
-    m_status_difficulty = make_label(tr("Difficulty"));
-    m_status_bpm = make_label(tr("BPM"));
-    m_status_time = make_label(tr("Playhead time"));
-    m_status_editor = make_label(tr("Script editor"));
-
-    m_status_time->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    m_status_time->setText("00:00.000");
 }
 
 void MainWindow::create_output_dock(){
@@ -364,34 +345,11 @@ void MainWindow::update_playback_action(bool playing){
     action->setIcon(style()->standardIcon(playing ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
 }
 
-void MainWindow::update_status_fields(){
-    // Called from attach_editor() before the status bar exists.
-    if(!m_status_project){
-        return;
-    }
-
+void MainWindow::update_bpm_display(){
     const bool has_project = !m_project_file_path.isEmpty();
 
-    m_status_project->setText(has_project
-            ? QFileInfo(m_project_file_path).completeBaseName()
-            : tr("No project"));
-
-    // .osu files are named "Artist - Title (Creator) [Difficulty].osu"
-    const QString osu_name = QFileInfo(m_osu_file).completeBaseName();
-    const qsizetype open = osu_name.lastIndexOf('[');
-    const qsizetype close = osu_name.lastIndexOf(']');
-    const QString difficulty = (open >= 0 && close > open)
-        ? osu_name.mid(open + 1, close - open - 1)
-        : osu_name;
-
-    m_status_difficulty->setText(difficulty);
-    m_status_difficulty->setToolTip(osu_name.isEmpty() ? tr("Difficulty") : osu_name);
-    m_status_difficulty->setVisible(!difficulty.isEmpty());
-
-    m_status_bpm->setText(has_project ? tr("%1 BPM").arg(m_bpm, 0, 'g', 6) : QString());
-    m_status_bpm->setVisible(has_project);
-
-    m_status_editor->setText(m_editor ? m_editor->backend_name() : QString());
+    m_bpm_label->setText(has_project ? tr("%1 BPM ").arg(m_bpm, 0, 'g', 6) : QString());
+    m_bpm_action->setVisible(has_project);
 }
 
 
@@ -467,7 +425,7 @@ void MainWindow::new_project_from_beatmap(){
 
 void MainWindow::on_update_beatmap(){
     if(m_project_file_path.isEmpty()){
-        show_error("Open a project before updating its beatmap", 5000);
+        show_error("Open a project before updating its beatmap");
         return;
     }
 
@@ -537,7 +495,7 @@ void MainWindow::on_update_beatmap(){
     // Only the beatmap is reloaded; the script editor (and unsaved edits) is untouched.
     apply_beatmap(*beatmap);
 
-    show_info(QString("Beatmap updated: BPM %1").arg(m_bpm), 5000);
+    show_info(QString("Beatmap updated: BPM %1").arg(m_bpm));
 }
 
 void MainWindow::on_open_project(){
@@ -565,7 +523,7 @@ void MainWindow::open_project(){
 
 void MainWindow::on_save_project(){
     if(m_project_root.isEmpty()){
-        show_error("Open or create a project before saving", 5000);
+        show_error("Open or create a project before saving");
         return;
     }
 
@@ -576,7 +534,7 @@ void MainWindow::on_save_project(){
 
 bool MainWindow::save_script(){
     if(m_project_root.isEmpty()){
-        show_error("Open or create a project before saving", 5000);
+        show_error("Open or create a project before saving");
         return false;
     }
 
@@ -599,7 +557,7 @@ bool MainWindow::save_script(){
     }
 
     m_editor->mark_saved(text);
-    show_info(QString("Saved %1").arg(m_script_relative_path), 3000);
+    show_info(QString("Saved %1").arg(m_script_relative_path));
 
     return true;
 }
@@ -685,8 +643,6 @@ void MainWindow::run_script(){
         append_output(message, OutputKind::error, in_script ? error->line : 0);
         m_dock_output->show();
         m_dock_output->raise();
-
-        show_error(message, 5000);
         return;
     }
 
@@ -697,12 +653,12 @@ void MainWindow::run_script(){
 
     m_preview->set_base_path(base_path);
     m_preview->set_scene(&m_script->current_scene());
+    m_timeline->setScene(&m_script->current_scene());
 
     const auto sprite_count = m_script->current_scene().sprites.size();
     const QString result = tr("Script ran successfully: %n sprite(s)", nullptr, int(sprite_count));
 
-    append_output(result, OutputKind::info);
-    show_info(result, 3000);
+    show_info(result);
 }
 
 void MainWindow::on_build_json(){
@@ -716,15 +672,18 @@ void MainWindow::on_export_osb(){
 //about tab
 void MainWindow::on_about(){
     QMessageBox::about(this, "About cosby",
-            "cosby storyboard editor\nC++, JSON-based pipeline");
+            QString("cosby storyboard editor\nC++, JSON-based pipeline\n\nScript editor: %1")
+                .arg(m_editor->backend_name()));
 }
 
-void MainWindow::show_info(const QString& message, int timeout_ms){
-    statusBar()->showMessage(message, timeout_ms);
+void MainWindow::show_info(const QString& message){
+    append_output(message, OutputKind::info);
 }
 
-void MainWindow::show_error(const QString& message, int timeout_ms){
-    statusBar()->showMessage(message, timeout_ms);
+void MainWindow::show_error(const QString& message){
+    append_output(message, OutputKind::error);
+    m_dock_output->show();
+    m_dock_output->raise();
 }
 
 void MainWindow::report_error(const QString& title, const QString& message){
@@ -773,7 +732,7 @@ void MainWindow::rebuild_recent_menu(){
         const QString& path = list.at(i);
         const QFileInfo info(path);
 
-        // "&1 name", with the folder in the tooltip/status tip.
+        // "&1 name", with the folder in the tooltip.
         QString label = QString("%1 %2").arg(i + 1).arg(info.dir().dirName());
         if(i < 9){
             label.prepend('&');
@@ -781,7 +740,6 @@ void MainWindow::rebuild_recent_menu(){
 
         QAction* action = menu->addAction(label);
         action->setToolTip(QDir::toNativeSeparators(path));
-        action->setStatusTip(QDir::toNativeSeparators(path));
 
         connect(action, &QAction::triggered, this, [this, path]{
             open_recent_project(path);
@@ -842,7 +800,7 @@ void MainWindow::restore_window_layout(){
 
         // Give the script editor a useful share of the width.
         resizeDocks({m_dock_code}, {size.width() * 2 / 5}, Qt::Horizontal);
-        resizeDocks({m_dock_timeline}, {220}, Qt::Vertical);
+        resizeDocks({m_dock_timeline}, {260}, Qt::Vertical);
         resizeDocks({m_dock_timeline, m_dock_output},
                     {size.width() * 3 / 4, size.width() / 4}, Qt::Horizontal);
     }
@@ -900,6 +858,8 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     // Drop everything that belonged to the previous project.
     m_preview->stop();
     m_preview->set_scene(nullptr);
+    m_timeline->setScene(nullptr);
+    m_timeline->showAllLayers();
     m_output->clear();
 
     apply_beatmap(*beatmap);
@@ -910,10 +870,9 @@ bool MainWindow::open_project_file(const QString& project_file_path){
 
     update_window_title();
     update_action_state();
-    update_status_fields();
+    update_bpm_display();
 
-    append_output(tr("Opened %1").arg(QDir::toNativeSeparators(project_file_path)), OutputKind::info);
-    show_info("Project loaded successfully", 3000);
+    show_info(tr("Opened %1").arg(QDir::toNativeSeparators(project_file_path)));
 
     return true;
 }
@@ -926,9 +885,12 @@ void MainWindow::apply_beatmap(const BeatmapImportInfo& beatmap){
     m_bpm = beatmap.bpm;
 
     m_timeline->setBpm(m_bpm);
+    m_timeline->setBeatOffsetMs(beatmap.beat_offset_ms);
     m_preview->set_base_path(m_asset_root);
 
-    update_status_fields();
+    // The difficulty (in the title) and BPM can change on a beatmap update.
+    update_window_title();
+    update_bpm_display();
 }
 
 void MainWindow::attach_editor(ScriptEditor* editor){
@@ -941,7 +903,6 @@ void MainWindow::attach_editor(ScriptEditor* editor){
     connect(editor, &ScriptEditor::failed, this, &MainWindow::on_editor_failed);
 
     update_window_title();
-    update_status_fields();
 }
 
 void MainWindow::on_editor_failed(const QString& reason){
@@ -962,7 +923,7 @@ void MainWindow::on_editor_failed(const QString& reason){
     failed_editor->hide();
     failed_editor->deleteLater();
 
-    show_error(QString("%1. Switched to the plain text editor.").arg(reason), 8000);
+    show_error(QString("%1. Switched to the plain text editor.").arg(reason));
 }
 
 void MainWindow::after_editor_sync(std::function<void()> action){
@@ -970,12 +931,23 @@ void MainWindow::after_editor_sync(std::function<void()> action){
 }
 
 void MainWindow::update_window_title(){
-    const QString name = m_project_file_path.isEmpty()
-        ? QString()
-        : QFileInfo(m_project_file_path).completeBaseName();
+    QString title = "cosby";
+
+    if(!m_project_file_path.isEmpty()){
+        title += " - " + QFileInfo(m_project_file_path).completeBaseName();
+
+        // .osu files are named "Artist - Title (Creator) [Difficulty].osu"
+        const QString osu_name = QFileInfo(m_osu_file).completeBaseName();
+        const qsizetype open = osu_name.lastIndexOf('[');
+        const qsizetype close = osu_name.lastIndexOf(']');
+
+        if(open >= 0 && close > open){
+            title += " " + osu_name.mid(open, close - open + 1);
+        }
+    }
 
     // [*] is where Qt shows the unsaved-changes marker.
-    setWindowTitle(name.isEmpty() ? QString("cosby[*]") : QString("cosby - %1[*]").arg(name));
+    setWindowTitle(title + "[*]");
     setWindowModified(m_editor && m_editor->is_modified());
 }
 

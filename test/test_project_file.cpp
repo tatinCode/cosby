@@ -1,4 +1,5 @@
 #include "project/project_file.h"
+#include "cosby_test.h"
 
 #include <QTest>
 #include <QTemporaryDir>
@@ -233,7 +234,7 @@ void TestProjectFile::test_invalid_source_directory(){
     QVERIFY(error.contains("sourceDirectory"));
 }
 
-QTEST_APPLESS_MAIN(TestProjectFile)
+COSBY_TEST(TestProjectFile)
 
 #include "test_project_file.moc"
 

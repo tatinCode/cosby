@@ -4,12 +4,21 @@
 #include <QJSValue>
 #include "core/scene.h"
 
+class js_bridge;
+
+// The JS-side handle for one sprite.
+//
+// Holds an index, never a sprite* / sprite&: creating more sprites can
+// reallocate scene::sprites, which would leave a pointer dangling. The run
+// generation makes handles kept from an earlier run (e.g. in a global) fail
+// loudly instead of editing whatever sprite now has the same index.
 class js_sprite_proxy : public QObject
 {
         Q_OBJECT
 
 public:
-        explicit js_sprite_proxy(sprite *s, QObject *parent = nullptr) : QObject(parent), s_(s) {}
+        js_sprite_proxy(js_bridge *bridge, qsizetype index, quint64 generation)
+                : bridge_(bridge), index_(index), generation_(generation) {}
 
         Q_INVOKABLE js_sprite_proxy *fade(const QString &easing, int t0, int t1, double a0, double a1);
         Q_INVOKABLE js_sprite_proxy *move(const QString &easing, int t0, int t1,
@@ -35,5 +44,12 @@ public:
         Q_INVOKABLE js_sprite_proxy *additive(const QJSValue &opts);
 
 private:
-        sprite *s_;
+        // The sprite, or nullptr (and a JS exception) if this handle is stale.
+        sprite *target();
+
+        void push(const command &cmd);
+
+        js_bridge *bridge_;
+        qsizetype index_;
+        quint64 generation_;
 };

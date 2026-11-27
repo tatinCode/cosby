@@ -61,10 +61,6 @@ void apply_app_theme(QApplication& app){
         QToolBar QToolButton {
             padding: 4px 8px;
         }
-        QStatusBar QLabel {
-            padding: 0 8px;
-            color: #a0a0a0;
-        }
         QListWidget {
             border: none;
         }

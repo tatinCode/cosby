@@ -52,10 +52,10 @@ class MainWindow : public QMainWindow {
     private:
         void create_menus();
         void create_toolbar();
-        void create_status_bar();
         void create_output_dock();
-        void show_info(const QString& message, int timeout_ms);
-        void show_error(const QString& message, int timeout_ms);
+        // Short notes go to the Output panel; errors also bring it forward.
+        void show_info(const QString& message);
+        void show_error(const QString& message);
 
         // Failures the user has to notice (create/open/update): a dialog.
         void report_error(const QString& title, const QString& message);
@@ -72,7 +72,7 @@ class MainWindow : public QMainWindow {
         void restore_window_layout();
         void save_window_layout();
 
-        void update_status_fields();
+        void update_bpm_display();
         void update_playback_action(bool playing);
       
         bool open_project_file(const QString& project_file_path);
@@ -114,12 +114,10 @@ class MainWindow : public QMainWindow {
         AppActions* m_actions = nullptr;
         PreviewWidget* m_preview = nullptr;
 
-        //status bar (permanent fields)
-        QLabel* m_status_project = nullptr;
-        QLabel* m_status_difficulty = nullptr;
-        QLabel* m_status_bpm = nullptr;
-        QLabel* m_status_time = nullptr;
-        QLabel* m_status_editor = nullptr;
+        //toolbar BPM readout (no status bar: the timeline's clock is the
+        //bottom-left corner of the window)
+        QLabel* m_bpm_label = nullptr;
+        QAction* m_bpm_action = nullptr;
 
         //project
         QString m_project_file_path;

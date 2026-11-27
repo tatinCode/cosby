@@ -3,6 +3,28 @@
 #include <QDebug>
 
 #include "scripting/js_sprite_proxy.h"
+#include "scripting/js_bridge.h"
+
+#include <QJSEngine>
+
+sprite *js_sprite_proxy::target() {
+    sprite *s = bridge_ ? bridge_->sprite_for(index_, generation_) : nullptr;
+
+    if (!s) {
+        if (QJSEngine *engine = qjsEngine(this)) {
+            engine->throwError(QJSValue::ReferenceError,
+                               QStringLiteral("This sprite belongs to an earlier run of the script"));
+        }
+    }
+
+    return s;
+}
+
+void js_sprite_proxy::push(const command &cmd) {
+    if (sprite *s = target()) {
+        s->cmds.push_back(cmd);
+    }
+}
 
 js_sprite_proxy *js_sprite_proxy::fade(const QString &easing, int t0, int t1,
                                        double a0, double a1) {
@@ -15,7 +37,7 @@ js_sprite_proxy *js_sprite_proxy::fade(const QString &easing, int t0, int t1,
     cmd.v0 = a0;
     cmd.v1 = a1;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
     return this;
 }
 
@@ -31,7 +53,7 @@ js_sprite_proxy *js_sprite_proxy::move(const QString &easing, int t0, int t1,
     cmd.x1 = x1;
     cmd.y1 = y1;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
     return this;
 }
 
@@ -46,7 +68,7 @@ js_sprite_proxy *js_sprite_proxy::scale(const QString &easing, int t0, int t1,
     cmd.v0 = s0;
     cmd.v1 = s1;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
     return this;
 }
 
@@ -61,7 +83,7 @@ js_sprite_proxy *js_sprite_proxy::rotate(const QString &easing, int t0, int t1,
     cmd.v0 = r0;
     cmd.v1 = r1;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
     return this;
 }
 
@@ -82,7 +104,7 @@ js_sprite_proxy *js_sprite_proxy::color(const QString &easing, int t0, int t1,
     cmd.g1 = g;
     cmd.b1 = b;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
     return this;
 }
 
@@ -274,39 +296,53 @@ js_sprite_proxy *js_sprite_proxy::color(const QJSValue &opts)
     cmd.g1 = g1;
     cmd.b1 = b1;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }
 
 js_sprite_proxy *js_sprite_proxy::moveX(const QJSValue &opts)
 {
+    const sprite *s = target();
+    if (!s)
+    {
+        return this;
+    }
+    const sprite &base = *s;
+
     command cmd;
 
     cmd.type = cmd_t::move_x;
     cmd.easing = readEasing(opts);
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
-    cmd.v0 = readNumber(opts, "startValue", s_->x);
-    cmd.v1 = readNumber(opts, "endValue", s_->x);
+    cmd.v0 = readNumber(opts, "startValue", base.x);
+    cmd.v1 = readNumber(opts, "endValue", base.x);
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }
 
 js_sprite_proxy *js_sprite_proxy::moveY(const QJSValue &opts)
 {
+    const sprite *s = target();
+    if (!s)
+    {
+        return this;
+    }
+    const sprite &base = *s;
+
     command cmd;
 
     cmd.type = cmd_t::move_y;
     cmd.easing = readEasing(opts);
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
-    cmd.v0 = readNumber(opts, "startValue", s_->y);
-    cmd.v1 = readNumber(opts, "endValue", s_->y);
+    cmd.v0 = readNumber(opts, "startValue", base.y);
+    cmd.v1 = readNumber(opts, "endValue", base.y);
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }
@@ -332,7 +368,7 @@ js_sprite_proxy *js_sprite_proxy::scaleVec(const QJSValue &opts)
     cmd.x1 = sx1;
     cmd.y1 = sy1;
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }
@@ -345,7 +381,7 @@ js_sprite_proxy *js_sprite_proxy::flipH(const QJSValue &opts)
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }
@@ -358,7 +394,7 @@ js_sprite_proxy *js_sprite_proxy::flipV(const QJSValue &opts)
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }
@@ -371,7 +407,7 @@ js_sprite_proxy *js_sprite_proxy::additive(const QJSValue &opts)
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
 
-    s_->cmds.push_back(cmd);
+    push(cmd);
 
     return this;
 }

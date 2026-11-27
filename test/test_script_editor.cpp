@@ -1,4 +1,5 @@
 #include "ui/plain_script_editor.h"
+#include "cosby_test.h"
 
 #include <QPlainTextEdit>
 #include <QSignalSpy>
@@ -156,5 +157,5 @@ class TestScriptEditor : public QObject {
         }
 };
 
-QTEST_MAIN(TestScriptEditor)
+COSBY_TEST(TestScriptEditor)
 #include "test_script_editor.moc"

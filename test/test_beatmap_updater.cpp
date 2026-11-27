@@ -1,5 +1,7 @@
 #include "project/beatmap_updater.h"
+#include "cosby_test.h"
 #include "project/project_creator.h"
+#include "project/osu_parser.h"
 #include "project/project_file.h"
 
 #include <QTest>
@@ -322,6 +324,77 @@ void TestBeatmapUpdater::test_recovers_interrupted_update(){
     verify_no_leftovers(project);
 }
 
-QTEST_APPLESS_MAIN(TestBeatmapUpdater)
+COSBY_TEST(TestBeatmapUpdater)
+
+namespace {
+    QString write_osu(const QTemporaryDir& dir, const QString& timing_points){
+        const QString path = dir.filePath("map.osu");
+        QFile file(path);
+
+        if(!file.open(QIODevice::WriteOnly | QIODevice::Text)){
+            return {};
+        }
+
+        file.write(QString(
+            "osu file format v14\n"
+            "\n"
+            "[General]\n"
+            "AudioFilename: audio.mp3\n"
+            "\n"
+            "[Events]\n"
+            "0,0,\"bg.jpg\",0,0\n"
+            "\n"
+            "[TimingPoints]\n"
+            "%1\n"
+            "\n"
+            "[HitObjects]\n").arg(timing_points).toUtf8());
+
+        return path;
+    }
+}
+
+// The .osu metadata the timeline needs (BPM, beat offset).
+class TestOsuParser : public QObject {
+    Q_OBJECT
+
+    private slots:
+        void reads_bpm_and_beat_offset(){
+            QTemporaryDir dir;
+            QVERIFY(dir.isValid());
+
+            const auto info = parse_beatmap_metadata(write_osu(dir,
+                        "1234,333.333333333333,4,2,0,100,1,0\n"
+                        "5000,-100,4,2,0,100,0,0"));
+
+            QCOMPARE(qRound(info.bpm), 180);
+            QCOMPARE(info.beat_offset_ms, 1234.0);
+            QCOMPARE(info.audio_file, QString("audio.mp3"));
+            QCOMPARE(info.background_file, QString("bg.jpg"));
+        }
+
+        void skips_inherited_points_before_the_first_red_line(){
+            QTemporaryDir dir;
+            QVERIFY(dir.isValid());
+
+            const auto info = parse_beatmap_metadata(write_osu(dir,
+                        "-50,-100,4,2,0,100,0,0\n"
+                        "820,500,4,2,0,100,1,0"));
+
+            QCOMPARE(info.bpm, 120.0);
+            QCOMPARE(info.beat_offset_ms, 820.0);
+        }
+
+        void offset_defaults_to_zero_without_timing_points(){
+            QTemporaryDir dir;
+            QVERIFY(dir.isValid());
+
+            const auto info = parse_beatmap_metadata(write_osu(dir, QString()));
+
+            QCOMPARE(info.beat_offset_ms, 0.0);
+            QCOMPARE(info.bpm, 180.0);
+        }
+};
+
+COSBY_TEST(TestOsuParser)
 
 #include "test_beatmap_updater.moc"

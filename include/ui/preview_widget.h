@@ -6,7 +6,7 @@
 #include <QHash>
 #include <QPixmap>
 
-struct scene;
+#include "core/scene.h"
 
 class PreviewWidget : public QWidget {
     Q_OBJECT
@@ -19,7 +19,10 @@ class PreviewWidget : public QWidget {
         void toggle_playback();
         void stop();                // pause and go back to 0
         bool is_playing() const;
+        // Copies the scene (cheap, implicitly shared); nullptr clears it.
         void set_scene(const scene* sc);
+        // Preview only: hidden layers are still exported.
+        void set_layer_visible(layer_t layer, bool visible);
         void seekMs(qint64 ms);
         void set_base_path(const QString& path);
 
@@ -31,7 +34,9 @@ class PreviewWidget : public QWidget {
         void paintEvent(QPaintEvent*) override;
 
     private:
-        const scene* m_scene_ref = nullptr;
+        scene m_scene;
+        bool m_has_scene = false;
+        unsigned m_visible_layers = 0x1f;  // bit per layer_t
         bool m_playing;
         qint64 m_time_ms {};
         qint64 m_play_start_ms {};  // m_time_ms when playback (re)started

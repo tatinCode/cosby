@@ -36,5 +36,10 @@ namespace Menus{
         //help tab
         auto* help = bar->addMenu("&Help");
         help->addAction(a->act_about);
+
+        //action hints are tooltips (there is no status bar)
+        for(QMenu* menu : {file, proj, playback}){
+            menu->setToolTipsVisible(true);
+        }
     }
 }
