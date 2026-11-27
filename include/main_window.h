@@ -7,6 +7,7 @@ class PreviewWidget;
 class QPlainTextEdit;
 class script_host;
 class AppActions;
+struct BeatmapImportInfo;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -28,6 +29,7 @@ class MainWindow : public QMainWindow {
         void on_save_project();
 
         //project tab
+        void on_update_beatmap();
         void on_build_json();
         void on_export_osb();
 
@@ -38,6 +40,9 @@ class MainWindow : public QMainWindow {
         void create_menus();
         void show_info(const QString& message, int timeout_ms);
         void show_error(const QString& message, int timeout_ms);
+      
+        bool open_project_file(const QString& project_file_path);
+        void apply_beatmap(const BeatmapImportInfo& beatmap);
 
     private:
         //timeline

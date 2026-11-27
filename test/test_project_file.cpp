@@ -26,6 +26,9 @@ class TestProjectFile : public QObject{
         void test_missing_beatmap_file();
         void test_missing_script_file();
         void test_empty_save_values();
+        void test_source_directory_round_trip();
+        void test_source_directory_optional();
+        void test_invalid_source_directory();
 
 };
 
@@ -159,6 +162,75 @@ void TestProjectFile::test_empty_save_values(){
 
     QVERIFY(!save_project_file(path, project, &error));
     QVERIFY(!error.isEmpty());
+}
+
+void TestProjectFile::test_source_directory_round_trip(){
+    QTemporaryDir dir;
+
+    QVERIFY(dir.isValid());
+
+    const QString path = dir.filePath("project.cosby");
+
+    ProjectData expected;
+    expected.beatmap_file = "beatmap/difficulty.osu";
+    expected.source_directory = "/home/user/osu/Songs/123 Artist - Title";
+
+    QString error;
+
+    QVERIFY2(save_project_file(path, expected, &error), qPrintable(error));
+
+    const auto actual = load_project_file(path, &error);
+
+    QVERIFY2(actual.has_value(), qPrintable(error));
+    QCOMPARE(actual->source_directory, expected.source_directory);
+}
+
+void TestProjectFile::test_source_directory_optional(){
+    QTemporaryDir dir;
+
+    QVERIFY(dir.isValid());
+
+    const QString path = dir.filePath("project.cosby");
+
+    // Projects created before sourceDirectory existed must still load.
+    const QByteArray json = R"({
+        "formatVersion": 1,
+        "beatmapFile": "beatmap/difficulty.osu",
+        "scriptFile": "scripts/main.js"
+    })";
+
+    QVERIFY(write_test_file(path, json));
+
+    QString error;
+
+    const auto project = load_project_file(path, &error);
+
+    QVERIFY2(project.has_value(), qPrintable(error));
+    QVERIFY(project->source_directory.isEmpty());
+}
+
+void TestProjectFile::test_invalid_source_directory(){
+    QTemporaryDir dir;
+
+    QVERIFY(dir.isValid());
+
+    const QString path = dir.filePath("project.cosby");
+
+    const QByteArray json = R"({
+        "formatVersion": 1,
+        "beatmapFile": "beatmap/difficulty.osu",
+        "scriptFile": "scripts/main.js",
+        "sourceDirectory": 42
+    })";
+
+    QVERIFY(write_test_file(path, json));
+
+    QString error;
+
+    const auto project = load_project_file(path, &error);
+
+    QVERIFY(!project.has_value());
+    QVERIFY(error.contains("sourceDirectory"));
 }
 
 QTEST_APPLESS_MAIN(TestProjectFile)

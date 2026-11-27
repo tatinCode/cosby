@@ -44,6 +44,10 @@ bool save_project_file(
     object["beatmapFile"] = project.beatmap_file;
     object["scriptFile"] = project.script_file;
 
+    if(!project.source_directory.isEmpty()){
+        object["sourceDirectory"] = project.source_directory;
+    }
+
     const QJsonDocument document(object);
     const QByteArray json = document.toJson(QJsonDocument::Indented);
 
@@ -131,10 +135,19 @@ std::optional<ProjectData> load_project_file(
         return std::nullopt;
     }
 
+    const QJsonValue source_value = object["sourceDirectory"];
+
+    if(!source_value.isUndefined() && !source_value.isString()){
+        set_error(error, "Project sourceDirectory must be a string");
+
+        return std::nullopt;
+    }
+
     ProjectData project;
     project.format_version = 1;
     project.beatmap_file = beatmap_value.toString();
     project.script_file = script_value.toString();
+    project.source_directory = source_value.toString();
 
     if(project.beatmap_file.isEmpty()){
         set_error(error, "Project beatmapFile cannot be empty");
