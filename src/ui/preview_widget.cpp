@@ -1,6 +1,7 @@
 #include "ui/preview_widget.h"
 #include "core/scene.h"
 #include "core/scene_player.h"
+#include "project/asset_paths.h"
 
 #include <QPainter>
 #include <QDir>
@@ -84,6 +85,22 @@ void PreviewWidget::set_scene(const scene* sc){
     update();
 }
 
+namespace {
+    // osu!'s storyboard space: 640x480, shown widescreen as 854x480 with
+    // the 4:3 area in the middle (x from -107 to 747).
+    constexpr double playfield_width = 640.0;
+    constexpr double widescreen_width = 854.0;
+    constexpr double playfield_height = 480.0;
+    constexpr double widescreen_left = (playfield_width - widescreen_width) / 2.0;
+}
+
+QRectF PreviewWidget::playfield_rect() const{
+    const double scale = std::min(width() / widescreen_width, height() / playfield_height);
+    const QSizeF size(widescreen_width * scale, playfield_height * scale);
+
+    return QRectF(QPointF((width() - size.width()) / 2.0, (height() - size.height()) / 2.0), size);
+}
+
 void PreviewWidget::paintEvent(QPaintEvent*){
     QPainter p(this);
     p.fillRect(rect(), QColor(18, 18, 22));
@@ -94,7 +111,25 @@ void PreviewWidget::paintEvent(QPaintEvent*){
         return;
     }
 
+    const QRectF screen = playfield_rect();
+    const double scale = screen.height() / playfield_height;
+
+    p.fillRect(screen, Qt::black);
+    p.setClipRect(screen);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+
+    p.save();
+    p.translate(screen.left() - widescreen_left * scale, screen.top());
+    p.scale(scale, scale);
     draw_scene(p, m_scene, m_time_ms, m_pixmap_cache, m_visible_layers);
+    p.restore();
+
+    // Edges of the 4:3 area, which every player sees.
+    p.setPen(QPen(QColor(255, 255, 255, 40), 0, Qt::DashLine));
+    const double left = screen.left() - widescreen_left * scale;
+    const double right = left + playfield_width * scale;
+    p.drawLine(QPointF(left, screen.top()), QPointF(left, screen.bottom()));
+    p.drawLine(QPointF(right, screen.top()), QPointF(right, screen.bottom()));
 }
 
 void PreviewWidget::set_layer_visible(layer_t layer, bool visible){
@@ -103,8 +138,10 @@ void PreviewWidget::set_layer_visible(layer_t layer, bool visible){
     update();
 }
 
-void PreviewWidget::set_base_path(const QString& path){
-    m_base_path = path;
+void PreviewWidget::set_asset_folders(const QStringList& folders){
+    m_asset_folders = folders;
+    load_pixmaps();
+    update();
 }
 
 void PreviewWidget::load_pixmaps(){
@@ -114,15 +151,13 @@ void PreviewWidget::load_pixmaps(){
         return;
     }
 
-    QDir base(m_base_path.isEmpty() ? "." : m_base_path);
-
     for(const auto& s : m_scene.sprites){
         if(s.path.isEmpty() || m_pixmap_cache.contains(s.path)){
             continue;
         }
-        
-        const QString path = base.filePath(s.path);
-        m_pixmap_cache.insert(s.path, QPixmap(path));
+
+        // Missing images stay null and are drawn as a placeholder box.
+        m_pixmap_cache.insert(s.path, QPixmap(find_asset(m_asset_folders, s.path)));
     }
 }
 

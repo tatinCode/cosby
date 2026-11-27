@@ -13,6 +13,7 @@ add_executable(cosby_tests
     test_timeline.cpp
     test_script_host.cpp
     test_script_editor.cpp
+    test_osb_export.cpp
 
     #code under test
     ${CMAKE_SOURCE_DIR}/src/project/project_file.cpp
@@ -21,6 +22,9 @@ add_executable(cosby_tests
     ${CMAKE_SOURCE_DIR}/src/project/path_utils.cpp
     ${CMAKE_SOURCE_DIR}/src/project/beatmap_updater.cpp
     ${CMAKE_SOURCE_DIR}/src/project/osu_parser.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/asset_paths.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/storyboard_export.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/osb_writer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/time_format.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/timeline_model.cpp
     ${CMAKE_SOURCE_DIR}/src/timeline_view.cpp

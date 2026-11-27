@@ -1,3 +1,4 @@
+#include "project/asset_paths.h"
 #include "project/project_creator.h"
 
 #include "project/directory_copy.h"
@@ -22,6 +23,7 @@ namespace{
         QFile::remove(project.filePath("project.cosby"));
         QDir(project.filePath("scripts")).removeRecursively();
         QDir(project.filePath("beatmap")).removeRecursively();
+        QDir(project.filePath(assets_folder_name)).removeRecursively();
     }
 
     bool write_initial_script(const QString& path, QString* error){
@@ -176,6 +178,14 @@ std::optional<QString> create_project_from_directory(
     if(!project.mkpath("scripts")){
         clean_created_files(project_root);
         set_error(error, "Could not create scripts directory");
+
+        return std::nullopt;
+    }
+
+    // Storyboard images go here; beatmap updates replace beatmap/ only.
+    if(!project.mkpath(assets_folder_name)){
+        clean_created_files(project_root);
+        set_error(error, "Could not create assets directory");
 
         return std::nullopt;
     }

@@ -22,7 +22,6 @@ namespace Menus{
         proj->addAction(a->act_update_beatmap);
         proj->addSeparator();
         proj->addAction(a->act_run);
-        proj->addAction(a->act_build);
         proj->addAction(a->act_export);
 
         //playback tab
