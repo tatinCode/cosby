@@ -3,14 +3,28 @@
 js_bridge::js_bridge(QJSEngine *eng, scene *sc, QObject *parent)
     : QObject(parent), eng_(eng), sc_(sc) {}
 
+void js_bridge::begin_run() {
+    *sc_ = scene{};
+    ++generation_;
+}
+
+::sprite *js_bridge::sprite_for(qsizetype index, quint64 generation) {
+    if (generation != generation_ || index < 0 || index >= sc_->sprites.size()) {
+        return nullptr;
+    }
+
+    return &sc_->sprites[index];
+}
+
 QObject *js_bridge::add_sprite(const QString &path, const QString &layer,
-                               const QString &origin, double x, double y) {
+                               const QString &origin, double x, double y, int source_line) {
     layer_t ly = to_layer(layer);
     origin_t orr = to_origin(origin);
 
-    ::sprite &spr = sc_->add_sprite(path, ly, orr, x, y);
+    const qsizetype index = sc_->add_sprite(path, ly, orr, x, y);
+    sc_->sprites[index].source_line = source_line;
 
-    return new js_sprite_proxy(&spr, eng_);
+    return new js_sprite_proxy(this, index, generation_);
 }
 
 layer_t js_bridge::to_layer(const QString &s)
@@ -75,7 +89,7 @@ origin_t js_bridge::to_origin(const QString &s) {
     return origin_t::center;
 }
 
-QObject *js_bridge::sprite(const QString &path, const QJSValue &opts) {
+QObject *js_bridge::sprite(const QString &path, const QJSValue &opts, int source_line) {
     QString layer = QStringLiteral("Foreground");
     QString origin = QStringLiteral("Center");
 
@@ -123,7 +137,11 @@ QObject *js_bridge::sprite(const QString &path, const QJSValue &opts) {
         }
     }
 
-    auto proxy = add_sprite(path, layer, origin, x, y);
+    QObject *proxy = add_sprite(path, layer, origin, x, y, source_line);
+
+    if (opts.hasProperty("name")) {
+        sc_->sprites.back().name = opts.property("name").toString();
+    }
 
     return proxy;
 }

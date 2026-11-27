@@ -117,6 +117,12 @@ BeatmapImportInfo parse_beatmap_metadata(const QString& osu_file_path){
                 if(ok && uninherited && beat_length > 0.0){
                     info.bpm = 60000.0 / beat_length;
 
+                    bool offset_ok = false;
+                    const double offset = parts[0].trimmed().toDouble(&offset_ok);
+                    if(offset_ok){
+                        info.beat_offset_ms = offset;
+                    }
+
                     found_bpm = true;
                 }
 

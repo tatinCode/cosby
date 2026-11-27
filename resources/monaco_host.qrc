@@ -1,0 +1,8 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/monaco_host">
+        <file alias="index.html">monaco_host/index.html</file>
+        <file alias="host.js">monaco_host/host.js</file>
+        <file alias="cosby.d.ts">monaco_host/cosby.d.ts</file>
+    </qresource>
+</RCC>

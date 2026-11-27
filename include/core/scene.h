@@ -83,15 +83,30 @@ struct sprite
     double x{0}, y{0};
 
     QVector<command> cmds;
+
+    // Where the script created it (1-based; 0 = unknown, e.g. preload code).
+    int source_line{0};
+
+    // Optional label from sprite(path, { name }); shown in the timeline.
+    QString name;
 };
 
 struct scene
 {
     QVector<sprite> sprites;
 
-    sprite &add_sprite(QString path, layer_t layer, origin_t origin, double x, double y)
+    // Returns the new sprite's index. Not a reference: the next add can
+    // reallocate the vector, so anything kept across adds must use indices.
+    qsizetype add_sprite(QString path, layer_t layer, origin_t origin, double x, double y)
     {
-        sprites.push_back(sprite{std::move(path), layer, origin, x, y, {}});
-        return sprites.back();
+        sprite s;
+        s.path = std::move(path);
+        s.layer = layer;
+        s.origin = origin;
+        s.x = x;
+        s.y = y;
+
+        sprites.push_back(std::move(s));
+        return sprites.size() - 1;
     }
 };

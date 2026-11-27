@@ -166,60 +166,82 @@ inline sprite_state eval_sprite(const sprite& s, int ms){
     return state;
 }
 
-inline void draw_scene(QPainter& p, const scene& sc, int ms, const QHash<QString, QPixmap>& pixmaps){
-    for(const auto& s : sc.sprites){
-        auto state = eval_sprite(s, ms);
-
-        p.save();
-        p.setOpacity(std::clamp(state.alpha, 0.0, 1.0));
-
-        if(state.additive){
-            p.setCompositionMode(QPainter::CompositionMode_Plus);
-        } else{
-            p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-        }
-
-        const QPixmap* pix = nullptr;
-        double width = 32.0;
-        double height = 32.0;
-
-        auto it = pixmaps.find(s.path);
-        if(it != pixmaps.end() && !it->isNull()){
-            pix = &it.value();
-            width = pix->width();
-            height = pix->height();
-        }
-
-        const QPointF offset = origin_offset(s.origin, width, height);
-        QRectF rect(state.x - offset.x(), state.y - offset.y(), width, height);
-
-        const double flip_scale_x = state.flip_h ? -1.0 : 1.0;
-        const double flip_scale_y = state.flip_v ? -1.0 : 1.0;
-        const double final_scale_x = state.scale * state.scale_x * flip_scale_x;
-        const double final_scale_y = state.scale * state.scale_y * flip_scale_y;
-
-        const QPointF pivot(state.x, state.y);
-        p.translate(pivot);
-        p.rotate(state.rot * 180.0 / M_PI);
-        p.scale(final_scale_x, final_scale_y);
-        p.translate(-pivot);
-
-        QColor tint(
-            std::clamp(int(std::lround(state.r)), 0, 255),
-            std::clamp(int(std::lround(state.g)), 0, 255),
-            std::clamp(int(std::lround(state.b)), 0, 255)
-            );
-
-        if(pix){
-            p.drawPixmap(rect.topLeft(), *pix);
-        }
-        else{
-            p.setPen(tint);
-            p.drawRect(rect);
-        }
-
-        p.restore();
-    }
+inline unsigned layer_bit(layer_t layer){
+    return 1u << unsigned(layer);
 }
 
+constexpr unsigned all_layers_mask = 0x1f;
 
+inline void draw_sprite(QPainter& p, const sprite& s, int ms, const QHash<QString, QPixmap>& pixmaps){
+    auto state = eval_sprite(s, ms);
+
+    p.save();
+    p.setOpacity(std::clamp(state.alpha, 0.0, 1.0));
+
+    if(state.additive){
+        p.setCompositionMode(QPainter::CompositionMode_Plus);
+    } else{
+        p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    }
+
+    const QPixmap* pix = nullptr;
+    double width = 32.0;
+    double height = 32.0;
+
+    auto it = pixmaps.find(s.path);
+    if(it != pixmaps.end() && !it->isNull()){
+        pix = &it.value();
+        width = pix->width();
+        height = pix->height();
+    }
+
+    const QPointF offset = origin_offset(s.origin, width, height);
+    QRectF rect(state.x - offset.x(), state.y - offset.y(), width, height);
+
+    const double flip_scale_x = state.flip_h ? -1.0 : 1.0;
+    const double flip_scale_y = state.flip_v ? -1.0 : 1.0;
+    const double final_scale_x = state.scale * state.scale_x * flip_scale_x;
+    const double final_scale_y = state.scale * state.scale_y * flip_scale_y;
+
+    const QPointF pivot(state.x, state.y);
+    p.translate(pivot);
+    p.rotate(state.rot * 180.0 / M_PI);
+    p.scale(final_scale_x, final_scale_y);
+    p.translate(-pivot);
+
+    QColor tint(
+        std::clamp(int(std::lround(state.r)), 0, 255),
+        std::clamp(int(std::lround(state.g)), 0, 255),
+        std::clamp(int(std::lround(state.b)), 0, 255)
+        );
+
+    if(pix){
+        p.drawPixmap(rect.topLeft(), *pix);
+    }
+    else{
+        p.setPen(tint);
+        p.drawRect(rect);
+    }
+
+    p.restore();
+}
+
+// Back to front, as osu! draws them; within a layer, in creation order.
+inline void draw_scene(QPainter& p, const scene& sc, int ms, const QHash<QString, QPixmap>& pixmaps,
+        unsigned visible_layers = all_layers_mask){
+    static constexpr layer_t draw_order[] = {
+        layer_t::background, layer_t::fail, layer_t::pass, layer_t::foreground, layer_t::overlay
+    };
+
+    for(layer_t layer : draw_order){
+        if(!(visible_layers & layer_bit(layer))){
+            continue;
+        }
+
+        for(const auto& s : sc.sprites){
+            if(s.layer == layer){
+                draw_sprite(p, s, ms, pixmaps);
+            }
+        }
+    }
+}

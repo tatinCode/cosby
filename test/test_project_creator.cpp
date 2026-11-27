@@ -1,4 +1,5 @@
 #include "project/project_creator.h"
+#include "cosby_test.h"
 #include "project/project_file.h"
 
 #include <QTest>
@@ -297,7 +298,7 @@ void TestProjectCreator::test_rejects_overlapping_directories(){
     QVERIFY(!QFileInfo::exists(project.filePath("beatmap")));
 }
 
-QTEST_APPLESS_MAIN(TestProjectCreator)
+COSBY_TEST(TestProjectCreator)
 
 #include "test_project_creator.moc"
 
