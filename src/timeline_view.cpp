@@ -883,6 +883,13 @@ QString TimelineView::tooltip_for(int index, int bar_index) const{
 }
 
 bool TimelineView::event(QEvent* e){
+    // The mouse can be taken away mid-drag (a popup, the window losing it):
+    // the drag ends there, or playback would stay quiet.
+    if(e->type() == QEvent::UngrabMouse && m_drag == drag_mode::seek){
+        m_drag = drag_mode::none;
+        emit scrubFinished();
+    }
+
     if(e->type() == QEvent::ToolTip){
         auto* help = static_cast<QHelpEvent*>(e);
 
@@ -1033,6 +1040,7 @@ void TimelineView::mousePressEvent(QMouseEvent* e){
     }
 
     m_drag = drag_mode::seek;
+    emit scrubStarted();
     seek_to_x(pos.x(), snap);
 }
 
@@ -1072,7 +1080,12 @@ void TimelineView::mouseReleaseEvent(QMouseEvent*){
         unsetCursor();
     }
 
+    const bool was_seeking = m_drag == drag_mode::seek;
     m_drag = drag_mode::none;
+
+    if(was_seeking){
+        emit scrubFinished();
+    }
 }
 
 void TimelineView::mouseDoubleClickEvent(QMouseEvent* e){

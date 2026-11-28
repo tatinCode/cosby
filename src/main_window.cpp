@@ -1,4 +1,5 @@
 #include "main_window.h"
+#include "audio/playback_controller.h"
 #include "timeline_view.h"
 #include "ui/preview_widget.h"
 #include "scripting/script_host.h"
@@ -17,6 +18,7 @@
 #include "ui/script_editor_factory.h"
 
 #include <QAction>
+#include <QAudio>
 #include <QCloseEvent>
 #include <QDockWidget>
 #include <QToolBar>
@@ -40,7 +42,11 @@
 #include <QPushButton>
 #include <QScreen>
 #include <QSettings>
+#include <QSlider>
 #include <QStyle>
+#include <QToolButton>
+#include <QWidgetAction>
+#include <QGridLayout>
 
 #include <algorithm>
 
@@ -164,7 +170,8 @@ MainWindow::MainWindow(QWidget* parent):
     QMainWindow(parent),
     m_timeline(new TimelineView(this)),
     m_preview(new PreviewWidget(this)),
-    m_script(new script_host(this))
+    m_script(new script_host(this)),
+    m_playback(new playback_controller(this))
 {
     //center: preview
     setCentralWidget(m_preview);
@@ -199,10 +206,20 @@ MainWindow::MainWindow(QWidget* parent):
 
     create_toolbar();
 
-    //wire timeline <-> preview (shared playhead in ms)
-    connect(m_timeline, &TimelineView::requestSeek, m_preview, &PreviewWidget::seekMs);
-    connect(m_preview, &PreviewWidget::timeChanged, m_timeline, &TimelineView::setPlayheadMs);
-    connect(m_preview, &PreviewWidget::playingChanged, this, &MainWindow::update_playback_action);
+    //playback drives the preview and the timeline's playhead
+    connect(m_timeline, &TimelineView::requestSeek, m_playback, &playback_controller::seek);
+    connect(m_timeline, &TimelineView::scrubStarted, m_playback, &playback_controller::begin_scrub);
+    connect(m_timeline, &TimelineView::scrubFinished, m_playback, &playback_controller::end_scrub);
+    connect(m_playback, &playback_controller::timeChanged, m_preview, &PreviewWidget::set_time_ms);
+    connect(m_playback, &playback_controller::timeChanged, m_timeline, &TimelineView::setPlayheadMs);
+    connect(m_playback, &playback_controller::playingChanged, this, &MainWindow::update_playback_action);
+    connect(m_playback, &playback_controller::songProblem, this, [this](const QString& message){
+        append_output(message, OutputKind::warning);
+    });
+    connect(m_playback, &playback_controller::sampleProblem, this, [this](const QString& path, const QString& reason){
+        append_output(tr("%1: can't play this sound (%2)").arg(QDir::toNativeSeparators(path), reason),
+                      OutputKind::warning);
+    });
 
     //timeline -> code and preview
     connect(m_timeline, &TimelineView::sourceLineActivated, this, [this](int line){
@@ -251,6 +268,7 @@ void MainWindow::create_toolbar(){
     tb->addSeparator();
     tb->addAction(m_actions->act_play_pause);
     tb->addAction(m_actions->act_stop);
+    create_audio_controls(tb);
     tb->addSeparator();
 
     //beatmap BPM (hidden until a project is open)
@@ -340,11 +358,11 @@ void MainWindow::on_output_activated(QListWidgetItem* item){
 }
 
 void MainWindow::on_play(){
-    m_preview->toggle_playback();
+    m_playback->toggle_playback();
 }
 
 void MainWindow::on_stop(){
-    m_preview->stop();
+    m_playback->stop();
 }
 
 void MainWindow::update_playback_action(bool playing){
@@ -480,7 +498,10 @@ void MainWindow::on_update_beatmap(){
         return;
     }
 
-    m_preview->stop();
+    // Let go of the song file before its folder is replaced.
+    m_playback->stop();
+    const QString old_song = m_playback->song();
+    m_playback->set_song({});
 
     const auto beatmap_file = update_beatmap_snapshot(
             m_project_file_path,
@@ -490,6 +511,7 @@ void MainWindow::on_update_beatmap(){
             );
 
     if(!beatmap_file.has_value()){
+        m_playback->set_song(old_song);     // the old beatmap is still there
         report_error("Update Beatmap Failed", error);
         return;
     }
@@ -497,6 +519,8 @@ void MainWindow::on_update_beatmap(){
     const auto beatmap = read_beatmap(QDir(m_project_root).filePath(*beatmap_file), &error);
 
     if(!beatmap.has_value()){
+        // The new copy is in place but unreadable: its song may still play.
+        m_playback->set_song(old_song);
         report_error("Update Beatmap Failed", error);
         return;
     }
@@ -661,6 +685,10 @@ bool MainWindow::run_script(){
     m_timeline->setScene(&m_script->current_scene());
 
     const scene& sc = m_script->current_scene();
+
+    // Without a project there's nowhere to find sound files.
+    m_playback->set_samples(sc.samples, m_project_root.isEmpty()
+            ? QStringList() : asset_folders(m_project_root, m_asset_root));
     const QString result = tr("Script ran successfully: %n sprite(s)", nullptr, int(sc.sprites.size()));
 
     show_info(result);
@@ -1003,7 +1031,8 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     m_script_relative_path = project->script_file;
 
     // Drop everything that belonged to the previous project.
-    m_preview->stop();
+    m_playback->stop();
+    m_playback->set_samples({}, {});
     m_preview->set_scene(nullptr);
     m_timeline->setScene(nullptr);
     m_timeline->showAllLayers();
@@ -1034,10 +1063,116 @@ void MainWindow::apply_beatmap(const BeatmapImportInfo& beatmap){
     m_timeline->setBpm(m_bpm);
     m_timeline->setBeatOffsetMs(beatmap.beat_offset_ms);
     m_preview->set_asset_folders(asset_folders(m_project_root, m_asset_root));
+    m_playback->set_song(song_path());
 
     // The difficulty (in the title) and BPM can change on a beatmap update.
     update_window_title();
     update_bpm_display();
+}
+
+QString MainWindow::song_path() const{
+    if(m_audio_file.isEmpty() || m_asset_root.isEmpty()){
+        return {};
+    }
+
+    // Not find_asset(): a missing song still gets a path, so the warning
+    // can name it.
+    const QString file = normalize_asset_path(m_audio_file);
+
+    return is_safe_asset_path(file) ? QDir(m_asset_root).filePath(file) : QString();
+}
+
+namespace {
+    // Slider positions (0-100) are loudness as heard; the outputs want gain.
+    float slider_gain(int position){
+        return float(QAudio::convertVolume(position / 100.0, QAudio::LogarithmicVolumeScale,
+                                           QAudio::LinearVolumeScale));
+    }
+
+    constexpr const char* music_volume_key = "audio/music_volume";
+    constexpr const char* sample_volume_key = "audio/sample_volume";
+    constexpr const char* muted_key = "audio/muted";
+}
+
+void MainWindow::create_audio_controls(QToolBar* tb){
+    QSettings settings;
+
+    //volume: click mutes, the arrow opens the sliders
+    m_mute_button = new QToolButton(tb);
+    m_mute_button->setObjectName("toolbar_mute");
+    m_mute_button->setCheckable(true);
+    m_mute_button->setPopupMode(QToolButton::MenuButtonPopup);
+    m_mute_button->setFocusPolicy(Qt::NoFocus);
+
+    auto* menu = new QMenu(m_mute_button);
+    auto* panel = new QWidget(menu);
+    auto* grid = new QGridLayout(panel);
+    grid->setContentsMargins(10, 8, 10, 8);
+
+    auto add_slider = [&](int row, const QString& label, const char* key, auto apply){
+        auto* slider = new QSlider(Qt::Horizontal, panel);
+        slider->setRange(0, 100);
+        slider->setMinimumWidth(160);
+        slider->setValue(std::clamp(settings.value(key, 100).toInt(), 0, 100));
+
+        auto* value = new QLabel(panel);
+        value->setMinimumWidth(36);
+        value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+        auto update = [this, slider, value, key, apply](int position){
+            value->setText(tr("%1%").arg(position));
+            (m_playback->*apply)(slider_gain(position));
+            QSettings().setValue(key, position);
+        };
+
+        connect(slider, &QSlider::valueChanged, this, update);
+        update(slider->value());
+
+        grid->addWidget(new QLabel(label, panel), row, 0);
+        grid->addWidget(slider, row, 1);
+        grid->addWidget(value, row, 2);
+    };
+
+    add_slider(0, tr("Music"), music_volume_key, &playback_controller::set_music_volume);
+    add_slider(1, tr("Samples"), sample_volume_key, &playback_controller::set_sample_volume);
+
+    auto* panel_action = new QWidgetAction(menu);
+    panel_action->setDefaultWidget(panel);
+    menu->addAction(panel_action);
+    m_mute_button->setMenu(menu);
+
+    m_mute_button->setChecked(settings.value(muted_key, false).toBool());
+    m_playback->set_muted(m_mute_button->isChecked());
+    connect(m_mute_button, &QToolButton::toggled, this, [this](bool muted){
+        m_playback->set_muted(muted);
+        QSettings().setValue(muted_key, muted);
+        update_mute_button();
+    });
+    update_mute_button();
+    tb->addWidget(m_mute_button);
+
+    //speed, for checking timing; not saved, so every session starts at 1x
+    auto* speed_box = new QComboBox(tb);
+    speed_box->setObjectName("toolbar_speed");
+    speed_box->setToolTip(tr("Playback speed (the song keeps its pitch)"));
+    speed_box->setFocusPolicy(Qt::ClickFocus);
+
+    for(const double rate : {1.0, 0.75, 0.5, 0.25}){
+        speed_box->addItem(QString::fromUtf8("%1\u00d7").arg(rate), rate);
+    }
+
+    connect(speed_box, &QComboBox::currentIndexChanged, this, [this, speed_box](int index){
+        m_playback->set_rate(speed_box->itemData(index).toDouble());
+    });
+    tb->addWidget(speed_box);
+}
+
+void MainWindow::update_mute_button(){
+    const bool muted = m_mute_button->isChecked();
+
+    m_mute_button->setIcon(style()->standardIcon(muted ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
+    m_mute_button->setToolTip(muted ? tr("Sound off: click to turn it on, or use the arrow for volume")
+                                    : tr("Sound on: click to mute, or use the arrow for volume"));
 }
 
 void MainWindow::attach_editor(ScriptEditor* editor){

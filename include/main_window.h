@@ -9,11 +9,14 @@ class QDockWidget;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QToolBar;
+class QToolButton;
 class TimelineView;
 class PreviewWidget;
 class ScriptEditor;
 class script_host;
 class AppActions;
+class playback_controller;
 struct BeatmapImportInfo;
 
 class MainWindow : public QMainWindow {
@@ -51,6 +54,9 @@ class MainWindow : public QMainWindow {
     private:
         void create_menus();
         void create_toolbar();
+        // Volume popup and speed box; settings restored from QSettings.
+        void create_audio_controls(QToolBar* tb);
+        void update_mute_button();
         void create_output_dock();
         // Short notes go to the Output panel; errors also bring it forward.
         void show_info(const QString& message);
@@ -76,6 +82,8 @@ class MainWindow : public QMainWindow {
       
         bool open_project_file(const QString& project_file_path);
         void apply_beatmap(const BeatmapImportInfo& beatmap);
+        // The beatmap copy's song, or empty when the beatmap names none.
+        QString song_path() const;
 
         //script editor
         void attach_editor(ScriptEditor* editor);
@@ -114,6 +122,10 @@ class MainWindow : public QMainWindow {
         //preview
         AppActions* m_actions = nullptr;
         PreviewWidget* m_preview = nullptr;
+
+        //play/pause/seek, song and samples
+        playback_controller* m_playback = nullptr;
+        QToolButton* m_mute_button = nullptr;
 
         //toolbar BPM readout (no status bar: the timeline's clock is the
         //bottom-left corner of the window)

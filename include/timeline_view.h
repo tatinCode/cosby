@@ -45,6 +45,10 @@ public:
 
 signals:
     void requestSeek(qint64 ms);
+    // Around a drag of the playhead (also a plain click), so playback can
+    // go quiet while it moves.
+    void scrubStarted();
+    void scrubFinished();
     void sourceLineActivated(int line);
     void layerVisibilityChanged(layer_t layer, bool visible);
 
