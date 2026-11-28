@@ -5,15 +5,19 @@
 
 class QAction;
 class QCloseEvent;
+class QKeySequence;
 class QDockWidget;
 class QLabel;
 class QListWidget;
 class QListWidgetItem;
+class QToolBar;
+class QToolButton;
 class TimelineView;
 class PreviewWidget;
 class ScriptEditor;
 class script_host;
 class AppActions;
+class playback_controller;
 struct BeatmapImportInfo;
 
 class MainWindow : public QMainWindow {
@@ -22,9 +26,6 @@ class MainWindow : public QMainWindow {
     public:
         explicit MainWindow(QWidget* parent = nullptr);
         ~MainWindow() override;
-
-    private slots:
-        void on_division_changed(int idx);
 
     public slots:
         //playback
@@ -42,6 +43,10 @@ class MainWindow : public QMainWindow {
         void on_update_beatmap();
         void on_export_osb();
 
+        //view tab
+        void on_preview_only(bool on);
+        void on_reset_layout();
+
         //about tab
         void on_about();
 
@@ -51,10 +56,15 @@ class MainWindow : public QMainWindow {
     private:
         void create_menus();
         void create_toolbar();
+        // Volume popup and speed box; settings restored from QSettings.
+        void create_audio_controls(QToolBar* tb);
+        void update_mute_button();
         void create_output_dock();
         // Short notes go to the Output panel; errors also bring it forward.
         void show_info(const QString& message);
         void show_error(const QString& message);
+        // Opens the Output panel and brings it in front of the Timeline.
+        void show_output();
 
         // Failures the user has to notice (create/open/update): a dialog.
         void report_error(const QString& title, const QString& message);
@@ -70,12 +80,31 @@ class MainWindow : public QMainWindow {
         void open_recent_project(const QString& project_file_path);
         void restore_window_layout();
         void save_window_layout();
+        // Script on the right; Timeline and Output as tabs at the bottom,
+        // Timeline in front. Shows every panel.
+        void apply_default_layout();
+
+        // View menu: a checkable panel toggle with a key. When the panel is
+        // open but behind another tab, the key brings it to the front
+        // instead of closing it.
+        void add_panel_action(QDockWidget* dock, const QString& tip, const QKeySequence& key);
+        void toggle_panel(QDockWidget* dock);
+        // Turns Preview Only off without bringing the other panels back.
+        void drop_preview_only();
 
         void update_bpm_display();
         void update_playback_action(bool playing);
       
         bool open_project_file(const QString& project_file_path);
         void apply_beatmap(const BeatmapImportInfo& beatmap);
+        // A file of the beatmap copy, by the name the .osu gives it; empty
+        // when there's no name or it points outside the folder. The file
+        // may not exist.
+        QString beatmap_file_path(const QString& name) const;
+
+        // The timeline's hint while it has no rows, from the project and
+        // the last script run.
+        void update_timeline_hint();
 
         //script editor
         void attach_editor(ScriptEditor* editor);
@@ -111,9 +140,17 @@ class MainWindow : public QMainWindow {
         QDockWidget* m_dock_output = nullptr;
         QListWidget* m_output = nullptr;
 
+        // The layout to go back to when Preview Only is turned off; empty
+        // while it's off.
+        QByteArray m_layout_before_preview_only;
+
         //preview
         AppActions* m_actions = nullptr;
         PreviewWidget* m_preview = nullptr;
+
+        //play/pause/seek, song and samples
+        playback_controller* m_playback = nullptr;
+        QToolButton* m_mute_button = nullptr;
 
         //toolbar BPM readout (no status bar: the timeline's clock is the
         //bottom-left corner of the window)
@@ -134,4 +171,8 @@ class MainWindow : public QMainWindow {
 
         // Set once the user agreed to close, so the re-sent close is accepted.
         bool m_close_confirmed = false;
+
+        // The last script run since the project opened.
+        enum class ScriptRun { none, succeeded, failed };
+        ScriptRun m_last_run = ScriptRun::none;
 };

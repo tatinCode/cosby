@@ -1,4 +1,5 @@
 #include "main_window.h"
+#include "audio/playback_controller.h"
 #include "timeline_view.h"
 #include "ui/preview_widget.h"
 #include "scripting/script_host.h"
@@ -17,6 +18,9 @@
 #include "ui/script_editor_factory.h"
 
 #include <QAction>
+#include <QKeySequence>
+#include <QSignalBlocker>
+#include <QAudio>
 #include <QCloseEvent>
 #include <QDockWidget>
 #include <QToolBar>
@@ -40,7 +44,11 @@
 #include <QPushButton>
 #include <QScreen>
 #include <QSettings>
+#include <QSlider>
 #include <QStyle>
+#include <QToolButton>
+#include <QWidgetAction>
+#include <QGridLayout>
 
 #include <algorithm>
 
@@ -164,7 +172,8 @@ MainWindow::MainWindow(QWidget* parent):
     QMainWindow(parent),
     m_timeline(new TimelineView(this)),
     m_preview(new PreviewWidget(this)),
-    m_script(new script_host(this))
+    m_script(new script_host(this)),
+    m_playback(new playback_controller(this))
 {
     //center: preview
     setCentralWidget(m_preview);
@@ -199,10 +208,20 @@ MainWindow::MainWindow(QWidget* parent):
 
     create_toolbar();
 
-    //wire timeline <-> preview (shared playhead in ms)
-    connect(m_timeline, &TimelineView::requestSeek, m_preview, &PreviewWidget::seekMs);
-    connect(m_preview, &PreviewWidget::timeChanged, m_timeline, &TimelineView::setPlayheadMs);
-    connect(m_preview, &PreviewWidget::playingChanged, this, &MainWindow::update_playback_action);
+    //playback drives the preview and the timeline's playhead
+    connect(m_timeline, &TimelineView::requestSeek, m_playback, &playback_controller::seek);
+    connect(m_timeline, &TimelineView::scrubStarted, m_playback, &playback_controller::begin_scrub);
+    connect(m_timeline, &TimelineView::scrubFinished, m_playback, &playback_controller::end_scrub);
+    connect(m_playback, &playback_controller::timeChanged, m_preview, &PreviewWidget::set_time_ms);
+    connect(m_playback, &playback_controller::timeChanged, m_timeline, &TimelineView::setPlayheadMs);
+    connect(m_playback, &playback_controller::playingChanged, this, &MainWindow::update_playback_action);
+    connect(m_playback, &playback_controller::songProblem, this, [this](const QString& message){
+        append_output(message, OutputKind::warning);
+    });
+    connect(m_playback, &playback_controller::sampleProblem, this, [this](const QString& path, const QString& reason){
+        append_output(tr("%1: can't play this sound (%2)").arg(QDir::toNativeSeparators(path), reason),
+                      OutputKind::warning);
+    });
 
     //timeline -> code and preview
     connect(m_timeline, &TimelineView::sourceLineActivated, this, [this](int line){
@@ -219,9 +238,15 @@ MainWindow::MainWindow(QWidget* parent):
     create_menus();
     m_actions->connect_slots(this);
 
-    m_actions->menu_view->addAction(m_dock_code->toggleViewAction());
-    m_actions->menu_view->addAction(m_dock_timeline->toggleViewAction());
-    m_actions->menu_view->addAction(m_dock_output->toggleViewAction());
+    m_actions->menu_view->setToolTipsVisible(true);
+    add_panel_action(m_dock_code, tr("Show or hide the script editor (Alt+1)"), QKeySequence(Qt::ALT | Qt::Key_1));
+    add_panel_action(m_dock_timeline, tr("Show or hide the timeline (Alt+2)"), QKeySequence(Qt::ALT | Qt::Key_2));
+    add_panel_action(m_dock_output, tr("Show or hide the script output (Alt+3)"), QKeySequence(Qt::ALT | Qt::Key_3));
+    m_actions->menu_view->addSeparator();
+    m_actions->menu_view->addAction(m_timeline->compactAction());
+    m_actions->menu_view->addSeparator();
+    m_actions->menu_view->addAction(m_actions->act_preview_only);
+    m_actions->menu_view->addAction(m_actions->act_reset_layout);
     rebuild_recent_menu();
 
     restore_window_layout();
@@ -229,6 +254,7 @@ MainWindow::MainWindow(QWidget* parent):
     update_window_title();
     update_action_state();
     update_bpm_display();
+    update_timeline_hint();
 
     if(!editor_notice.isEmpty()){
         show_info(editor_notice);
@@ -251,6 +277,7 @@ void MainWindow::create_toolbar(){
     tb->addSeparator();
     tb->addAction(m_actions->act_play_pause);
     tb->addAction(m_actions->act_stop);
+    create_audio_controls(tb);
     tb->addSeparator();
 
     //beatmap BPM (hidden until a project is open)
@@ -264,13 +291,16 @@ void MainWindow::create_toolbar(){
     tb->addWidget(snap_label);
 
     auto* division_box = new QComboBox(tb);
-    division_box->addItems({"1/1", "1/2", "1/4", "1/8", "1/16", "1/32"});
-    division_box->setCurrentIndex(2);       // matches TimelineView's default of 1/4
+    for(const int division : {1, 2, 3, 4, 6, 8, 12, 16, 32}){
+        division_box->addItem(QString("1/%1").arg(division), division);
+    }
+    division_box->setCurrentIndex(division_box->findData(4));  // TimelineView's default
     division_box->setToolTip(tr("Beat snap divisor for the timeline"));
     division_box->setFocusPolicy(Qt::ClickFocus);
 
-    connect(division_box, &QComboBox::currentIndexChanged,
-            this, &MainWindow::on_division_changed);
+    connect(division_box, &QComboBox::currentIndexChanged, this, [this, division_box](int index){
+        m_timeline->setSubdivision(division_box->itemData(index).toInt());
+    });
     tb->addWidget(division_box);
 
     //push export actions to the right edge
@@ -290,6 +320,7 @@ void MainWindow::create_output_dock(){
     output_font.setPointSizeF(std::max(output_font.pointSizeF(), 11.0));
     m_output->setFont(output_font);
     m_output->setToolTip(tr("Script output. Double-click an error to jump to its line."));
+    m_output->setMinimumSize(1, 1);     // no minimum: squeeze it as far as you like
 
     connect(m_output, &QListWidget::itemActivated, this, &MainWindow::on_output_activated);
 
@@ -297,7 +328,7 @@ void MainWindow::create_output_dock(){
     m_dock_output->setObjectName("dock_output");
     m_dock_output->setWidget(m_output);
     addDockWidget(Qt::BottomDockWidgetArea, m_dock_output);
-    splitDockWidget(m_dock_timeline, m_dock_output, Qt::Horizontal);
+    tabifyDockWidget(m_dock_timeline, m_dock_output);
 }
 
 void MainWindow::append_output(const QString& text, OutputKind kind, int line){
@@ -340,11 +371,11 @@ void MainWindow::on_output_activated(QListWidgetItem* item){
 }
 
 void MainWindow::on_play(){
-    m_preview->toggle_playback();
+    m_playback->toggle_playback();
 }
 
 void MainWindow::on_stop(){
-    m_preview->stop();
+    m_playback->stop();
 }
 
 void MainWindow::update_playback_action(bool playing){
@@ -361,11 +392,6 @@ void MainWindow::update_bpm_display(){
     m_bpm_action->setVisible(has_project);
 }
 
-
-void MainWindow::on_division_changed(int idx){
-    static const int divs[] = {1, 2, 4, 8, 16, 32};
-    m_timeline->setSubdivision(divs[idx]);
-}
 
 /**
  * fucntions for menu bar below
@@ -480,7 +506,10 @@ void MainWindow::on_update_beatmap(){
         return;
     }
 
-    m_preview->stop();
+    // Let go of the song file before its folder is replaced.
+    m_playback->stop();
+    const QString old_song = m_playback->song();
+    m_playback->set_song({});
 
     const auto beatmap_file = update_beatmap_snapshot(
             m_project_file_path,
@@ -490,6 +519,7 @@ void MainWindow::on_update_beatmap(){
             );
 
     if(!beatmap_file.has_value()){
+        m_playback->set_song(old_song);     // the old beatmap is still there
         report_error("Update Beatmap Failed", error);
         return;
     }
@@ -497,6 +527,8 @@ void MainWindow::on_update_beatmap(){
     const auto beatmap = read_beatmap(QDir(m_project_root).filePath(*beatmap_file), &error);
 
     if(!beatmap.has_value()){
+        // The new copy is in place but unreadable: its song may still play.
+        m_playback->set_song(old_song);
         report_error("Update Beatmap Failed", error);
         return;
     }
@@ -650,17 +682,25 @@ bool MainWindow::run_script(){
                     QString::number(error->line));
 
         append_output(message, OutputKind::error, in_script ? error->line : 0);
-        m_dock_output->show();
-        m_dock_output->raise();
+        show_output();
+
+        m_last_run = ScriptRun::failed;
+        update_timeline_hint();
         return false;
     }
 
     m_editor->show_errors({});
+    m_last_run = ScriptRun::succeeded;
+    update_timeline_hint();
 
     m_preview->set_scene(&m_script->current_scene());
     m_timeline->setScene(&m_script->current_scene());
 
     const scene& sc = m_script->current_scene();
+
+    // Without a project there's nowhere to find sound files.
+    m_playback->set_samples(sc.samples, m_project_root.isEmpty()
+            ? QStringList() : asset_folders(m_project_root, m_asset_root));
     const QString result = tr("Script ran successfully: %n sprite(s)", nullptr, int(sc.sprites.size()));
 
     show_info(result);
@@ -807,8 +847,7 @@ void MainWindow::export_storyboard(){
     }
 
     if(!warnings.isEmpty()){
-        m_dock_output->show();
-        m_dock_output->raise();
+        show_output();
     }
 }
 
@@ -823,10 +862,16 @@ void MainWindow::show_info(const QString& message){
     append_output(message, OutputKind::info);
 }
 
-void MainWindow::show_error(const QString& message){
-    append_output(message, OutputKind::error);
+void MainWindow::show_output(){
+    // Something to read there: out of Preview Only, and in front of the Timeline.
+    drop_preview_only();
     m_dock_output->show();
     m_dock_output->raise();
+}
+
+void MainWindow::show_error(const QString& message){
+    append_output(message, OutputKind::error);
+    show_output();
 }
 
 void MainWindow::report_error(const QString& title, const QString& message){
@@ -928,6 +973,14 @@ void MainWindow::on_clear_recent_projects(){
     rebuild_recent_menu();
 }
 
+namespace {
+    const QString timeline_compact_key = QStringLiteral("timeline/compact");
+
+    // Bumped when the default arrangement changes, so old saved layouts are
+    // dropped once. 1: Output became a tab next to Timeline.
+    constexpr int layout_version = 1;
+}
+
 void MainWindow::restore_window_layout(){
     QSettings settings;
 
@@ -940,21 +993,126 @@ void MainWindow::restore_window_layout(){
         }
 
         resize(size);
-
-        // Give the script editor a useful share of the width.
-        resizeDocks({m_dock_code}, {size.width() * 2 / 5}, Qt::Horizontal);
-        resizeDocks({m_dock_timeline}, {260}, Qt::Vertical);
-        resizeDocks({m_dock_timeline, m_dock_output},
-                    {size.width() * 3 / 4, size.width() / 4}, Qt::Horizontal);
     }
 
-    restoreState(settings.value("window/state").toByteArray());
+    m_timeline->setCompact(settings.value(timeline_compact_key, false).toBool());
+    connect(m_timeline, &TimelineView::compactChanged, this, [](bool compact){
+        QSettings().setValue(timeline_compact_key, compact);
+    });
+
+    if(!restoreState(settings.value("window/state").toByteArray(), layout_version)){
+        apply_default_layout();
+    }
 }
 
 void MainWindow::save_window_layout(){
     QSettings settings;
     settings.setValue("window/geometry", saveGeometry());
-    settings.setValue("window/state", saveState());
+
+    // Closed in Preview Only: keep the panels for next time.
+    settings.setValue("window/state", m_layout_before_preview_only.isEmpty()
+            ? saveState(layout_version) : m_layout_before_preview_only);
+}
+
+void MainWindow::apply_default_layout(){
+    // Adding a dock again moves it.
+    for(QDockWidget* dock : {m_dock_code, m_dock_timeline, m_dock_output}){
+        dock->setFloating(false);
+    }
+
+    addDockWidget(Qt::RightDockWidgetArea, m_dock_code);
+    addDockWidget(Qt::BottomDockWidgetArea, m_dock_timeline);
+    tabifyDockWidget(m_dock_timeline, m_dock_output);
+
+    for(QDockWidget* dock : {m_dock_code, m_dock_timeline, m_dock_output}){
+        dock->show();
+    }
+    m_dock_timeline->raise();
+
+    // Give the script editor a useful share of the width.
+    resizeDocks({m_dock_code}, {width() * 2 / 5}, Qt::Horizontal);
+    resizeDocks({m_dock_timeline}, {260}, Qt::Vertical);
+}
+
+void MainWindow::add_panel_action(QDockWidget* dock, const QString& tip, const QKeySequence& key){
+    // Our own action instead of the dock's toggleViewAction(), which would
+    // close a panel that's only behind another tab.
+    auto* action = new QAction(dock->windowTitle(), this);
+    action->setCheckable(true);
+    action->setChecked(dock->toggleViewAction()->isChecked());
+    action->setShortcut(key);
+    action->setShortcutContext(Qt::ApplicationShortcut);    // floating panels too
+    action->setToolTip(tip);
+    addAction(action);
+    m_actions->menu_view->addAction(action);
+
+    connect(action, &QAction::triggered, this, [this, dock, action]{
+        toggle_panel(dock);
+        // It toggled itself on the click; the dock decides.
+        action->setChecked(dock->toggleViewAction()->isChecked());
+    });
+    // Closed with its own button, shown by Reset Layout, ...
+    connect(dock->toggleViewAction(), &QAction::toggled, action, &QAction::setChecked);
+
+    // Whether the panel is in front: Qt reports tab switches here too.
+    connect(dock, &QDockWidget::visibilityChanged, dock, [dock](bool visible){
+        dock->setProperty("cosby_in_front", visible);
+    });
+}
+
+void MainWindow::toggle_panel(QDockWidget* dock){
+    const bool open = dock->toggleViewAction()->isChecked();
+
+    if(!open){
+        // Showing a panel ends Preview Only, but only this one comes back.
+        drop_preview_only();
+        dock->show();
+        dock->raise();
+    }
+    else if(!dock->property("cosby_in_front").toBool()){
+        dock->raise();
+    }
+    else{
+        dock->hide();
+    }
+}
+
+void MainWindow::on_preview_only(bool on){
+    if(on){
+        m_layout_before_preview_only = saveState(layout_version);
+
+        for(QDockWidget* dock : {m_dock_code, m_dock_timeline, m_dock_output}){
+            dock->hide();
+        }
+
+        m_preview->show_note(tr("Preview only: Ctrl+Shift+F to show the panels"));
+        return;
+    }
+
+    if(m_layout_before_preview_only.isEmpty()){
+        return;     // already dropped
+    }
+
+    restoreState(m_layout_before_preview_only, layout_version);
+    m_layout_before_preview_only.clear();
+    m_preview->show_note({});
+}
+
+void MainWindow::drop_preview_only(){
+    if(m_layout_before_preview_only.isEmpty()){
+        return;
+    }
+
+    m_layout_before_preview_only.clear();
+    m_preview->show_note({});
+
+    const QSignalBlocker block(m_actions->act_preview_only);
+    m_actions->act_preview_only->setChecked(false);
+}
+
+void MainWindow::on_reset_layout(){
+    drop_preview_only();
+    apply_default_layout();
 }
 
 bool MainWindow::open_project_file(const QString& project_file_path){
@@ -1003,11 +1161,13 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     m_script_relative_path = project->script_file;
 
     // Drop everything that belonged to the previous project.
-    m_preview->stop();
+    m_playback->stop();
+    m_playback->set_samples({}, {});
     m_preview->set_scene(nullptr);
     m_timeline->setScene(nullptr);
     m_timeline->showAllLayers();
     m_output->clear();
+    m_last_run = ScriptRun::none;
 
     apply_beatmap(*beatmap);
     m_editor->set_text(script_contents);
@@ -1018,6 +1178,7 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     update_window_title();
     update_action_state();
     update_bpm_display();
+    update_timeline_hint();
 
     show_info(tr("Opened %1").arg(QDir::toNativeSeparators(project_file_path)));
 
@@ -1034,15 +1195,143 @@ void MainWindow::apply_beatmap(const BeatmapImportInfo& beatmap){
     m_timeline->setBpm(m_bpm);
     m_timeline->setBeatOffsetMs(beatmap.beat_offset_ms);
     m_preview->set_asset_folders(asset_folders(m_project_root, m_asset_root));
+    m_playback->set_song(beatmap_file_path(m_audio_file));
+    m_preview->set_placeholder_background(beatmap_file_path(m_background_file));
 
     // The difficulty (in the title) and BPM can change on a beatmap update.
     update_window_title();
     update_bpm_display();
 }
 
+QString MainWindow::beatmap_file_path(const QString& name) const{
+    if(name.isEmpty() || m_asset_root.isEmpty()){
+        return {};
+    }
+
+    // Not find_asset(): a missing song still gets a path, so the warning
+    // can name it.
+    const QString file = normalize_asset_path(name);
+
+    return is_safe_asset_path(file) ? QDir(m_asset_root).filePath(file) : QString();
+}
+
+void MainWindow::update_timeline_hint(){
+    QString hint;
+
+    switch(m_last_run){
+        case ScriptRun::failed:
+            hint = tr("Script error: see Output");
+            break;
+        case ScriptRun::succeeded:
+            hint = tr("The script made no sprites yet");
+            break;
+        case ScriptRun::none:
+            hint = m_project_file_path.isEmpty()
+                ? tr("Open or create a project to start")
+                : tr("Press F5 (or Run) to run the script");
+            break;
+    }
+
+    m_timeline->setEmptyHint(hint);
+}
+
+namespace {
+    // Slider positions (0-100) are loudness as heard; the outputs want gain.
+    float slider_gain(int position){
+        return float(QAudio::convertVolume(position / 100.0, QAudio::LogarithmicVolumeScale,
+                                           QAudio::LinearVolumeScale));
+    }
+
+    constexpr const char* music_volume_key = "audio/music_volume";
+    constexpr const char* sample_volume_key = "audio/sample_volume";
+    constexpr const char* muted_key = "audio/muted";
+}
+
+void MainWindow::create_audio_controls(QToolBar* tb){
+    QSettings settings;
+
+    //volume: click mutes, the arrow opens the sliders
+    m_mute_button = new QToolButton(tb);
+    m_mute_button->setObjectName("toolbar_mute");
+    m_mute_button->setCheckable(true);
+    m_mute_button->setPopupMode(QToolButton::MenuButtonPopup);
+    m_mute_button->setFocusPolicy(Qt::NoFocus);
+
+    auto* menu = new QMenu(m_mute_button);
+    auto* panel = new QWidget(menu);
+    auto* grid = new QGridLayout(panel);
+    grid->setContentsMargins(10, 8, 10, 8);
+
+    auto add_slider = [&](int row, const QString& label, const char* key, auto apply){
+        auto* slider = new QSlider(Qt::Horizontal, panel);
+        slider->setRange(0, 100);
+        slider->setMinimumWidth(160);
+        slider->setValue(std::clamp(settings.value(key, 100).toInt(), 0, 100));
+
+        auto* value = new QLabel(panel);
+        value->setMinimumWidth(36);
+        value->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+        auto update = [this, slider, value, key, apply](int position){
+            value->setText(tr("%1%").arg(position));
+            (m_playback->*apply)(slider_gain(position));
+            QSettings().setValue(key, position);
+        };
+
+        connect(slider, &QSlider::valueChanged, this, update);
+        update(slider->value());
+
+        grid->addWidget(new QLabel(label, panel), row, 0);
+        grid->addWidget(slider, row, 1);
+        grid->addWidget(value, row, 2);
+    };
+
+    add_slider(0, tr("Music"), music_volume_key, &playback_controller::set_music_volume);
+    add_slider(1, tr("Samples"), sample_volume_key, &playback_controller::set_sample_volume);
+
+    auto* panel_action = new QWidgetAction(menu);
+    panel_action->setDefaultWidget(panel);
+    menu->addAction(panel_action);
+    m_mute_button->setMenu(menu);
+
+    m_mute_button->setChecked(settings.value(muted_key, false).toBool());
+    m_playback->set_muted(m_mute_button->isChecked());
+    connect(m_mute_button, &QToolButton::toggled, this, [this](bool muted){
+        m_playback->set_muted(muted);
+        QSettings().setValue(muted_key, muted);
+        update_mute_button();
+    });
+    update_mute_button();
+    tb->addWidget(m_mute_button);
+
+    //speed, for checking timing; not saved, so every session starts at 1x
+    auto* speed_box = new QComboBox(tb);
+    speed_box->setObjectName("toolbar_speed");
+    speed_box->setToolTip(tr("Playback speed (the song keeps its pitch)"));
+    speed_box->setFocusPolicy(Qt::ClickFocus);
+
+    for(const double rate : {1.0, 0.75, 0.5, 0.25}){
+        speed_box->addItem(QString::fromUtf8("%1\u00d7").arg(rate), rate);
+    }
+
+    connect(speed_box, &QComboBox::currentIndexChanged, this, [this, speed_box](int index){
+        m_playback->set_rate(speed_box->itemData(index).toDouble());
+    });
+    tb->addWidget(speed_box);
+}
+
+void MainWindow::update_mute_button(){
+    const bool muted = m_mute_button->isChecked();
+
+    m_mute_button->setIcon(style()->standardIcon(muted ? QStyle::SP_MediaVolumeMuted : QStyle::SP_MediaVolume));
+    m_mute_button->setToolTip(muted ? tr("Sound off: click to turn it on, or use the arrow for volume")
+                                    : tr("Sound on: click to mute, or use the arrow for volume"));
+}
+
 void MainWindow::attach_editor(ScriptEditor* editor){
     m_editor = editor;
     m_dock_code->setWidget(editor);
+    editor->setMinimumSize(1, 1);       // no minimum width
 
     connect(editor, &ScriptEditor::modified_changed, this, &MainWindow::update_window_title);
     connect(editor, &ScriptEditor::save_requested, this, &MainWindow::on_save_project);

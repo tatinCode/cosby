@@ -15,6 +15,8 @@ add_executable(cosby_tests
     test_script_host.cpp
     test_script_editor.cpp
     test_osb_export.cpp
+    test_playback.cpp
+    test_preview.cpp
 
     #code under test
     ${CMAKE_SOURCE_DIR}/src/project/project_file.cpp
@@ -30,12 +32,19 @@ add_executable(cosby_tests
     ${CMAKE_SOURCE_DIR}/src/core/osb_writer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/time_format.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/timeline_model.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/beat_snap.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/preview_widget.cpp
     ${CMAKE_SOURCE_DIR}/src/timeline_view.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/script_host.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/js_bridge.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/js_sprite_proxy.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/script_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/plain_script_editor.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio/playback_clock.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio/sample_schedule.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio/sample_mixer.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio/sample_bank.cpp
+    ${CMAKE_SOURCE_DIR}/src/audio/playback_controller.cpp
 
     #headers with Q_OBJECT, for AUTOMOC
     ${CMAKE_SOURCE_DIR}/include/timeline_view.h
@@ -44,6 +53,10 @@ add_executable(cosby_tests
     ${CMAKE_SOURCE_DIR}/include/scripting/js_sprite_proxy.h
     ${CMAKE_SOURCE_DIR}/include/ui/script_editor.h
     ${CMAKE_SOURCE_DIR}/include/ui/plain_script_editor.h
+    ${CMAKE_SOURCE_DIR}/include/ui/preview_widget.h
+    ${CMAKE_SOURCE_DIR}/include/audio/sample_mixer.h
+    ${CMAKE_SOURCE_DIR}/include/audio/sample_bank.h
+    ${CMAKE_SOURCE_DIR}/include/audio/playback_controller.h
 )
 
 target_include_directories(cosby_tests PRIVATE
@@ -55,6 +68,7 @@ target_link_libraries(cosby_tests PRIVATE
     Qt6::Test
     Qt6::Widgets
     Qt6::Qml
+    Qt6::Multimedia
 )
 
 add_test(NAME cosby_tests COMMAND cosby_tests)

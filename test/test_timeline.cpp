@@ -1,5 +1,6 @@
 #include "timeline_view.h"
 #include "ui/timeline_model.h"
+#include "ui/beat_snap.h"
 #include "core/time_format.h"
 #include "cosby_test.h"
 
@@ -9,6 +10,8 @@
 #include <QLineEdit>
 #include <QSignalSpy>
 #include <QtTest>
+
+#include <climits>
 
 // The timeline: its row model, the widget, and the time box's parsing.
 
@@ -462,15 +465,65 @@ class TestTimeFormat : public QObject {
 
 COSBY_TEST(TestTimeFormat)
 
+class TestBeatSnap : public QObject {
+    Q_OBJECT
+
+    private slots:
+        void ticks_take_the_simplest_division(){
+            // 1/8 grid: beat, 1/8, 1/4, 1/8, 1/2, 1/8, 1/4, 1/8, next beat
+            const int expected[] = {1, 8, 4, 8, 2, 8, 4, 8, 1};
+            for(int k = 0; k <= 8; ++k){
+                QCOMPARE(beat_division(k, 8), expected[k]);
+            }
+        }
+
+        void triplet_grids(){
+            // 1/6: beat, 1/6, 1/3, 1/2, 1/3, 1/6
+            const int expected[] = {1, 6, 3, 2, 3, 6};
+            for(int k = 0; k < 6; ++k){
+                QCOMPARE(beat_division(k, 6), expected[k]);
+            }
+            QCOMPARE(beat_division(4, 12), 3);
+            QCOMPARE(beat_division(3, 12), 4);
+        }
+
+        void negative_ticks_and_whole_beats(){
+            QCOMPARE(beat_division(-1, 4), 4);
+            QCOMPARE(beat_division(-2, 4), 2);
+            QCOMPARE(beat_division(-8, 4), 1);
+            QCOMPARE(beat_division(7, 1), 1);
+            QCOMPARE(beat_division(5, 0), 1);
+        }
+
+        void colours_match_osu(){
+            QCOMPARE(beat_division_color(1), QColor(Qt::white));
+            QVERIFY(beat_division_color(2) != beat_division_color(4));
+            QVERIFY(beat_division_color(3) != beat_division_color(6));
+            QCOMPARE(beat_division_color(32), beat_division_color(5));     // no colour: grey
+        }
+};
+
+COSBY_TEST(TestBeatSnap)
+
 namespace {
     // Layout constants mirrored from TimelineView.
-    constexpr int ruler_height = 24;
     constexpr int row_height = 22;
     constexpr int header_width = 220;
     constexpr int footer_height = 24;
 
     int row_y(int row){
-        return ruler_height + row * row_height + row_height / 2;
+        return row * row_height + row_height / 2;
+    }
+
+    // make_view()'s tracks are 220..900 px (no scrollbar for 6 rows); the
+    // playhead is in their middle.
+    constexpr int center = header_width + (900 - header_width) / 2;
+
+    // The time at an x, by an exact (Alt) click there.
+    qint64 time_at(TimelineView* view, int x){
+        QSignalSpy spy(view, &TimelineView::requestSeek);
+        QTest::mouseClick(view, Qt::LeftButton, Qt::AltModifier, QPoint(x, row_y(1)));
+        return spy.count() == 1 ? spy.first().at(0).toLongLong() : LLONG_MIN;
     }
 
     command fade(int t0, int t1){
@@ -543,6 +596,152 @@ class TestTimelineView : public QObject {
 
             QCOMPARE(view->model().rows().size(), qsizetype(9));
             QVERIFY(view->model().rows().at(3).expanded);
+        }
+
+        void the_hint_shows_in_the_left_column_while_empty(){
+            const QString hint = "Press F5 (or Run) to run the script";
+
+            TimelineView view;
+            view.resize(900, 400);
+            view.show();
+            const QImage without = view.grab().toImage();
+
+            view.setEmptyHint(hint);
+            QCOMPARE(view.emptyHint(), hint);
+            const QImage with = view.grab().toImage();
+
+            // Only the left column changed: the tracks stay clean.
+            bool in_header = false;
+            for(int y = 0; y < with.height(); ++y){
+                for(int x = 0; x < with.width(); ++x){
+                    if(with.pixelColor(x, y) != without.pixelColor(x, y)){
+                        QVERIFY2(x < 220, qPrintable(QString("changed at %1,%2").arg(x).arg(y)));
+                        in_header = true;
+                    }
+                }
+            }
+            QVERIFY(in_header);
+
+            // With rows there's nothing to hint at.
+            const scene sc = sample_scene();
+            view.setScene(&sc);
+            const QImage rows_with_hint = view.grab().toImage();
+            view.setEmptyHint({});
+            QCOMPARE(view.grab().toImage(), rows_with_hint);
+        }
+
+        void the_compact_strip_has_coloured_ticks_samples_and_sprites(){
+            auto view = make_view();
+            view->setSubdivision(2);
+
+            scene sc = sample_scene();
+            sample smp;
+            smp.time = 1500;
+            sc.samples << smp;
+            view->setScene(&sc);
+
+            QSignalSpy changed(view.get(), &TimelineView::compactChanged);
+            view->setCompact(true);
+            QCOMPARE(changed.count(), 1);
+            QVERIFY(view->compactAction()->isChecked());
+            // Only the view changes; the panel keeps its size.
+            QCOMPARE(view->size(), QSize(900, 400));
+
+            constexpr int strip_height = 70;
+            view->resize(900, strip_height);
+            view->setPlayheadMs(2000);
+            const QImage image = view->grab().toImage();
+
+            // No names column: the strip starts at the left edge.
+            // Along the bottom of the ticks: white beats and red 1/2 ticks.
+            int white = 0, red = 0;
+            for(int x = 0; x < image.width(); ++x){
+                const QColor c = image.pixelColor(x, strip_height - footer_height - 2);
+                white += c.red() > 200 && c.green() > 200 && c.blue() > 200;
+                red += c.red() > 180 && c.green() < 80 && c.blue() < 80;
+            }
+            QVERIFY(white > 0);
+            QVERIFY(red > 0);
+
+            // The playhead (the middle) is at 2000 ms, so the sample's
+            // diamond at 1500 ms (cyan) is left of it...
+            int cyan_x = -1;
+            for(int x = 0; x < image.width(); ++x){
+                const QColor c = image.pixelColor(x, 21);
+                if(c.red() < 120 && c.green() > 170 && c.blue() > 170){
+                    cyan_x = x;
+                    break;
+                }
+            }
+            QVERIFY(cyan_x > 0);
+            QVERIFY(cyan_x < image.width() / 2);
+
+            // ...and the sprites band covers the middle (sprites live 0..4000).
+            const QColor band = image.pixelColor(image.width() / 2 - 20, 9);
+            QVERIFY2(band != image.pixelColor(image.width() / 2 - 20, 2), qPrintable(band.name()));
+
+            // No rows to click on.
+            QSignalSpy lines(view.get(), &TimelineView::sourceLineActivated);
+            QTest::mouseDClick(view.get(), Qt::LeftButton, {}, QPoint(120, 20));
+            QCOMPARE(lines.count(), 0);
+
+            // The action switches back.
+            view->compactAction()->trigger();
+            QVERIFY(!view->isCompact());
+            QCOMPARE(changed.count(), 2);
+        }
+
+        void it_can_be_squeezed_to_nothing(){
+            TimelineView view;
+            QCOMPARE(view.minimumSizeHint(), QSize(0, 0));
+
+            // Painting any size is safe, rows or not.
+            const scene sc = sample_scene();
+            view.setScene(&sc);
+            for(const QSize size : {QSize(1, 1), QSize(300, 10), QSize(900, 30)}){
+                view.resize(size);
+                view.grab();
+                view.setCompact(!view.isCompact());
+                view.grab();
+            }
+        }
+
+        void the_compact_strip_shows_the_hint(){
+            TimelineView view;
+            view.resize(900, 70);
+            view.setCompact(true);
+            view.show();
+            const QImage without = view.grab().toImage();
+
+            view.setEmptyHint("Press F5 (or Run) to run the script");
+            const QImage with = view.grab().toImage();
+
+            // Left of the playhead, above the time bar.
+            bool changed = false;
+            for(int y = 0; y < with.height(); ++y){
+                for(int x = 0; x < with.width(); ++x){
+                    if(with.pixelColor(x, y) != without.pixelColor(x, y)){
+                        QVERIFY2(x < with.width() / 2 && y < with.height() - footer_height,
+                                qPrintable(QString("changed at %1,%2").arg(x).arg(y)));
+                        changed = true;
+                    }
+                }
+            }
+            QVERIFY(changed);
+        }
+
+        void the_wheel_seeks_in_compact_mode(){
+            auto view = make_view();
+            view->setCompact(true);
+            view->setPlayheadMs(1000);
+            QSignalSpy spy(view.get(), &TimelineView::requestSeek);
+
+            QWheelEvent down(QPointF(400, 20), view->mapToGlobal(QPointF(400, 20)), {}, QPoint(0, -120),
+                    Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(view.get(), &down);
+
+            QCOMPARE(spy.count(), 1);
+            QVERIFY(spy.first().at(0).toLongLong() > 1000);    // down = later, like osu!
         }
 
         void paints_loops_triggers_and_samples(){
@@ -646,28 +845,71 @@ class TestTimelineView : public QObject {
             QCOMPARE(spy.count(), 4);
         }
 
-        void dragging_keeps_seeking(){
+        void the_playhead_stays_in_the_middle(){
             auto view = make_view();
+
+            for(qint64 t : {qint64(0), qint64(250), qint64(3000), qint64(-800)}){
+                view->setPlayheadMs(t);
+                QCOMPARE(time_at(view.get(), center), t);
+
+                // Drawn there too, from top to bottom; near 0 the left half
+                // is the time before the song.
+                const QImage image = view->grab().toImage();
+                const QColor c = image.pixelColor(center, 200);
+                QVERIFY2(c.red() > 180 && c.green() > 140 && c.blue() < 90, qPrintable(c.name()));
+            }
+
+            // Moving the playhead moves the content: the same x is later.
+            view->setPlayheadMs(0);
+            const qint64 before = time_at(view.get(), center + 100);
+            view->setPlayheadMs(1000);
+            QCOMPARE(time_at(view.get(), center + 100), before + 1000);
+        }
+
+        void dragging_slides_the_timeline(){
+            auto view = make_view();
+            view->setPlayheadMs(2000);
+            const qint64 left_of_center = time_at(view.get(), center - 250);
+
+            QSignalSpy started(view.get(), &TimelineView::scrubStarted);
+            QSignalSpy finished(view.get(), &TimelineView::scrubFinished);
             QSignalSpy spy(view.get(), &TimelineView::requestSeek);
 
-            QTest::mousePress(view.get(), Qt::LeftButton, Qt::AltModifier, QPoint(header_width + 50, 10));
-            QTest::mouseMove(view.get(), QPoint(header_width + 300, 10));
-            QTest::mouseRelease(view.get(), Qt::LeftButton, Qt::AltModifier, QPoint(header_width + 300, 10));
+            // Dragging right by 250 px brings what was 250 px left of the
+            // playhead to it. The view doesn't follow here (nothing answers
+            // requestSeek), which is the worst case: still measured from the
+            // press, so it can't run away.
+            QTest::mousePress(view.get(), Qt::LeftButton, {}, QPoint(center, 10));
+            QTest::mouseMove(view.get(), QPoint(center + 100, 10));
+            QTest::mouseMove(view.get(), QPoint(center + 250, 10));
+            QTest::mouseRelease(view.get(), Qt::LeftButton, {}, QPoint(center + 250, 10));
 
-            QVERIFY(spy.count() >= 2);
-            QVERIFY(spy.last().at(0).toLongLong() > spy.first().at(0).toLongLong());
+            QCOMPARE(started.count(), 1);
+            QCOMPARE(finished.count(), 1);
+            QCOMPARE(spy.count(), 2);
+            QVERIFY(spy.first().at(0).toLongLong() < 2000);
+            QVERIFY(qAbs(spy.last().at(0).toLongLong() - left_of_center) <= 1);
+        }
+
+        void zooming_keeps_the_playhead_in_place(){
+            auto view = make_view();
+            view->setPlayheadMs(1234);
+            const qint64 span_before = time_at(view.get(), center + 200) - 1234;
+
+            QWheelEvent zoom(QPointF(300, 60), view->mapToGlobal(QPointF(300, 60)), {}, QPoint(0, 120),
+                    Qt::NoButton, Qt::ControlModifier, Qt::NoScrollPhase, false);
+            QCoreApplication::sendEvent(view.get(), &zoom);
+
+            QCOMPARE(time_at(view.get(), center), qint64(1234));
+            QVERIFY(time_at(view.get(), center + 200) - 1234 < span_before);    // zoomed in
         }
 
         void first_scene_is_fitted(){
             auto view = make_view();
-            QSignalSpy spy(view.get(), &TimelineView::requestSeek);
 
-            // Fitted to 0..4000 ms: the right edge of the tracks is near 4000.
-            QTest::mouseClick(view.get(), Qt::LeftButton, Qt::AltModifier, QPoint(view->width() - 2, 10));
-
-            QCOMPARE(spy.count(), 1);
-            const qint64 ms = spy.first().at(0).toLongLong();
-            QVERIFY2(ms > 3900 && ms < 4300, qPrintable(QString::number(ms)));
+            // Fitted to 0..4000 ms plus 3% each side across the tracks.
+            const qint64 span = time_at(view.get(), view->width() - 1) - time_at(view.get(), header_width);
+            QVERIFY2(span > 4100 && span < 4400, qPrintable(QString::number(span)));
         }
 
         void clearing_shows_no_rows(){

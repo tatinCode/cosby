@@ -6,76 +6,54 @@
 
 #include <QPainter>
 #include <QDir>
+#include <QVariantAnimation>
 
 #include <algorithm>
+#include <cmath>
 
 PreviewWidget::PreviewWidget(QWidget* parent):
-    QWidget(parent),
-    m_playing(false),
-    m_time_ms(0){
+    QWidget(parent){
     setAutoFillBackground(false);
-    connect(&m_tick, &QTimer::timeout, this, [this]{
-            if(m_playing){
-            m_time_ms = m_play_start_ms + m_clock.elapsed();
-            emit timeChanged(m_time_ms);
+}
+
+void PreviewWidget::set_time_ms(qint64 ms){
+    if(ms == m_time_ms){
+        return;
+    }
+
+    m_time_ms = ms;
+    update();
+}
+
+void PreviewWidget::set_placeholder_background(const QString& path){
+    // Always reloaded: a beatmap update can replace the file under the same name.
+    m_placeholder = path.isEmpty() ? QPixmap() : QPixmap(path);
+    m_placeholder_scaled = QPixmap();
+    update();
+}
+
+void PreviewWidget::show_note(const QString& text, int duration_ms){
+    if(!m_note_fade){
+        m_note_fade = new QVariantAnimation(this);
+        m_note_fade->setStartValue(1.0);
+        m_note_fade->setKeyValueAt(0.8, 1.0);   // there for most of it, then a quick fade
+        m_note_fade->setEndValue(0.0);
+
+        connect(m_note_fade, &QVariantAnimation::valueChanged, this, [this](const QVariant& value){
+            m_note_opacity = value.toDouble();
             update();
-            }
         });
-    m_tick.start(1000/60);
-}
-
-void PreviewWidget::play(){
-    if(m_playing){
-        return;
     }
 
-    // Resume from the current position instead of 0.
-    m_play_start_ms = m_time_ms;
-    m_clock.restart();
-    m_playing = true;
+    m_note_fade->stop();
+    m_note = text;
+    m_note_opacity = text.isEmpty() ? 0.0 : 1.0;
 
-    emit playingChanged(true);
-}
-
-void PreviewWidget::pause(){
-    if(!m_playing){
-        return;
+    if(!text.isEmpty()){
+        m_note_fade->setDuration(std::max(1, duration_ms));
+        m_note_fade->start();
     }
 
-    m_time_ms = m_play_start_ms + m_clock.elapsed();
-    m_playing = false;
-
-    emit playingChanged(false);
-}
-
-void PreviewWidget::toggle_playback(){
-    if(m_playing){
-        pause();
-    }
-    else{
-        play();
-    }
-}
-
-void PreviewWidget::stop(){
-    pause();
-    seekMs(0);
-}
-
-bool PreviewWidget::is_playing() const{
-    return m_playing;
-}
-
-void PreviewWidget::seekMs(qint64 ms){
-    m_time_ms = std::max<qint64>(0, ms);
-
-    // Keep playing from the new position.
-    if(m_playing){
-        m_play_start_ms = m_time_ms;
-        m_clock.restart();
-    }
-
-    emit timeChanged(m_time_ms);
     update();
 }
 
@@ -106,18 +84,25 @@ void PreviewWidget::paintEvent(QPaintEvent*){
     QPainter p(this);
     p.fillRect(rect(), QColor(18, 18, 22));
 
-    if(!m_has_scene){
-        p.setPen(QColor(110, 110, 120));
-        p.drawText(rect(), Qt::AlignCenter, tr("Run the script (F5) to preview the storyboard"));
-        return;
-    }
-
     const QRectF screen = playfield_rect();
-    const double scale = screen.height() / playfield_height;
 
     p.fillRect(screen, Qt::black);
     p.setClipRect(screen);
     p.setRenderHint(QPainter::SmoothPixmapTransform);
+
+    if(m_scene.sprites.isEmpty()){
+        draw_placeholder(p, screen);
+    }
+
+    if(m_has_scene){
+        draw_storyboard(p, screen);
+    }
+
+    draw_note(p);
+}
+
+void PreviewWidget::draw_storyboard(QPainter& p, const QRectF& screen){
+    const double scale = screen.height() / playfield_height;
 
     p.save();
     p.translate(screen.left() - widescreen_left * scale, screen.top());
@@ -138,6 +123,49 @@ void PreviewWidget::paintEvent(QPaintEvent*){
         p.drawText(screen.adjusted(8, 0, -8, -6), Qt::AlignBottom | Qt::AlignLeft,
                 tr("No project open: images can't be loaded"));
     }
+}
+
+void PreviewWidget::draw_note(QPainter& p){
+    if(m_note_opacity <= 0.0 || m_note.isEmpty()){
+        return;
+    }
+
+    p.save();
+    p.setClipping(false);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    constexpr int margin = 10;
+    constexpr int padding = 8;
+    const QRect text = p.fontMetrics().boundingRect(m_note);
+    const QRectF box(width() - margin - text.width() - 2 * padding, margin,
+            text.width() + 2 * padding, text.height() + padding);
+
+    p.setOpacity(m_note_opacity);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 150));
+    p.drawRoundedRect(box, 4, 4);
+    p.setPen(QColor(255, 255, 255, 190));
+    p.drawText(box, Qt::AlignCenter, m_note);
+    p.restore();
+}
+
+void PreviewWidget::draw_placeholder(QPainter& p, const QRectF& screen){
+    if(m_placeholder.isNull()){
+        return;
+    }
+
+    // Fills the screen and is centred, cropping what sticks out, like osu!.
+    const QSize target = m_placeholder.size().scaled(screen.size().toSize(), Qt::KeepAspectRatioByExpanding);
+
+    // Scaled once per size, not on every frame.
+    if(m_placeholder_scaled.size() != target){
+        m_placeholder_scaled = m_placeholder.scaled(target, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    }
+
+    const QPointF top_left(screen.center().x() - target.width() / 2.0,
+                           screen.center().y() - target.height() / 2.0);
+    p.drawPixmap(top_left, m_placeholder_scaled);
+    p.fillRect(screen, QColor(0, 0, 0, int(std::lround(placeholder_dim * 255))));
 }
 
 void PreviewWidget::set_layer_visible(layer_t layer, bool visible){
