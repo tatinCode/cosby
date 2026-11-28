@@ -23,13 +23,23 @@ class TestScenePlayer : public QObject{
         void test_move_x_and_move_share_x();
         void test_permanent_and_timed_flags();
         void test_color_tints_images();
+        void test_easing_is_applied();
+        void test_opacity_above_one_wraps();
+        void test_loop_repeats_passes();
+        void test_loop_holds_last_value_after_it_ends();
+        void test_loop_counts_toward_lifetime();
+        void test_later_command_beats_loop_pass();
+        void test_triggers_are_ignored();
+        void test_animation_frames();
+        void test_animation_draws_current_frame();
+        void test_missing_image_is_untinted_magenta();
 };
 
 namespace {
     command fade(int t0, int t1, double v0, double v1){
         command cmd;
         cmd.type = cmd_t::fade;
-        cmd.easing = "Linear";
+        cmd.easing = easing_t::linear;
         cmd.t0 = t0;
         cmd.t1 = t1;
         cmd.v0 = v0;
@@ -87,23 +97,23 @@ void TestScenePlayer::test_draw_skips_hidden_layers(){
 }
 
 void TestScenePlayer::test_ease_linear(){
-    QCOMPARE(ease("Linear", 0.0), 0.0);
-    QCOMPARE(ease("Linear", 0.5), 0.5);
-    QCOMPARE(ease("Linear", 1.0), 1.0);
+    QCOMPARE(apply_easing(easing_t::linear, 0.0), 0.0);
+    QCOMPARE(apply_easing(easing_t::linear, 0.5), 0.5);
+    QCOMPARE(apply_easing(easing_t::linear, 1.0), 1.0);
 }
 
 void TestScenePlayer::test_ease_in(){
-    //ease("In", t) = t*t   (quadratic ease-in)
-    QCOMPARE(ease("In", 0.0), 0.0);
-    QCOMPARE(ease("In", 0.5), 0.25); // 0.5 * 0.5 = 0.25
-    QCOMPARE(ease("In", 1.0), 1.0);
+    //apply_easing(easing_t::in, t) = t*t   (quadratic ease-in)
+    QCOMPARE(apply_easing(easing_t::in, 0.0), 0.0);
+    QCOMPARE(apply_easing(easing_t::in, 0.5), 0.25); // 0.5 * 0.5 = 0.25
+    QCOMPARE(apply_easing(easing_t::in, 1.0), 1.0);
 }
 
 void TestScenePlayer::test_ease_out(){
-    //ease("Out", t) = 1 - (1 - t)*(1 - t)   (quadratic ease-out)
-    QCOMPARE(ease("Out", 0.0), 0.0);
-    QCOMPARE(ease("Out", 0.5), 0.75); // 1 - (1 - 0.5)*(1 - 0.5) = 1 - 0.25 = 0.75
-    QCOMPARE(ease("Out", 1.0), 1.0);
+    //apply_easing(easing_t::out, t) = 1 - (1 - t)*(1 - t)   (quadratic ease-out)
+    QCOMPARE(apply_easing(easing_t::out, 0.0), 0.0);
+    QCOMPARE(apply_easing(easing_t::out, 0.5), 0.75); // 1 - (1 - 0.5)*(1 - 0.5) = 1 - 0.25 = 0.75
+    QCOMPARE(apply_easing(easing_t::out, 1.0), 1.0);
 }
 
 void TestScenePlayer::test_eval_sprite_fade(){
@@ -115,7 +125,7 @@ void TestScenePlayer::test_eval_sprite_fade(){
     command cmd;
 
     cmd.type = cmd_t::fade;
-    cmd.easing = "Linear";
+    cmd.easing = easing_t::linear;
 
     cmd.t0 = 0;
     cmd.t1 = 1000;
@@ -148,7 +158,7 @@ void TestScenePlayer::test_eval_sprite_move(){
     command cmd;
 
     cmd.type = cmd_t::move;
-    cmd.easing = "Linear";
+    cmd.easing = easing_t::linear;
 
     cmd.t0 = 0;
     cmd.t1 = 1000;
@@ -219,7 +229,7 @@ void TestScenePlayer::test_move_x_and_move_share_x(){
 
     command move;
     move.type = cmd_t::move;
-    move.easing = "Linear";
+    move.easing = easing_t::linear;
     move.t0 = 0;
     move.t1 = 1000;
     move.x0 = 0;
@@ -230,7 +240,7 @@ void TestScenePlayer::test_move_x_and_move_share_x(){
 
     command move_x;
     move_x.type = cmd_t::move_x;
-    move_x.easing = "Linear";
+    move_x.easing = easing_t::linear;
     move_x.t0 = 500;
     move_x.t1 = 500;
     move_x.v0 = move_x.v1 = 400;
@@ -273,7 +283,7 @@ void TestScenePlayer::test_color_tints_images(){
 
     command colour;
     colour.type = cmd_t::color;
-    colour.easing = "Linear";
+    colour.easing = easing_t::linear;
     colour.t0 = 0;
     colour.t1 = 1000;
     colour.r0 = colour.r1 = 255;
@@ -293,6 +303,203 @@ void TestScenePlayer::test_color_tints_images(){
     p.end();
 
     QCOMPARE(QColor(image.pixel(16, 16)), QColor(Qt::red));
+}
+
+void TestScenePlayer::test_easing_is_applied(){
+    sprite s;
+    command cmd = fade(0, 1000, 0, 1);
+    cmd.easing = easing_t::quad_out;
+    s.cmds << cmd;
+
+    QCOMPARE(eval_sprite(s, 500).alpha, 0.75);
+}
+
+void TestScenePlayer::test_opacity_above_one_wraps(){
+    // osu! shows 1.25 as 0.25; storyboards rely on it for flicker.
+    sprite s;
+    s.cmds << fade(0, 100, 1.25, 1.25);
+
+    QCOMPARE(eval_sprite(s, 50).alpha, 0.25);
+}
+
+void TestScenePlayer::test_loop_repeats_passes(){
+    // 3 passes of a 200 ms fade 1 -> 0 starting at 1000 (inner times relative).
+    sprite s;
+    loop_group loop;
+    loop.start = 1000;
+    loop.count = 3;
+    loop.cmds << fade(0, 200, 1, 0);
+    s.loops << loop;
+
+    QCOMPARE(eval_sprite(s, 1000).alpha, 1.0);
+    QCOMPARE(eval_sprite(s, 1100).alpha, 0.5);
+    QCOMPARE(eval_sprite(s, 1200).alpha, 1.0);     // second pass starts
+    QCOMPARE(eval_sprite(s, 1350).alpha, 0.25);
+    QCOMPARE(eval_sprite(s, 1500).alpha, 0.5);     // third pass
+}
+
+void TestScenePlayer::test_loop_holds_last_value_after_it_ends(){
+    sprite s;
+    loop_group loop;
+    loop.start = 0;
+    loop.count = 2;
+    // A pass is 100..300: it starts at the first inner command, not at 0.
+    loop.cmds << fade(100, 200, 0, 1) << make_scale(200, 300, 1, 3);
+    s.loops << loop;
+
+    QCOMPARE(eval_sprite(s, 0).alpha, 0.0);         // first value before it starts
+    QCOMPARE(eval_sprite(s, 350).alpha, 0.5);       // second pass: 300 + 50
+    QCOMPARE(eval_sprite(s, 450).scale, 2.0);       // 400 + 50 of the scale
+    QCOMPARE(eval_sprite(s, 500).scale, 3.0);
+    QCOMPARE(eval_sprite(s, 500).alpha, 1.0);
+}
+
+void TestScenePlayer::test_loop_counts_toward_lifetime(){
+    sprite s;
+    s.cmds << fade(0, 100, 1, 1);
+
+    loop_group loop;
+    loop.start = 1000;
+    loop.count = 4;
+    loop.cmds << make_scale(50, 150, 1, 2);
+    s.loops << loop;
+
+    // 1050 + 4 passes of 100 ms.
+    const time_span life = lifetime_of(s);
+    QVERIFY(life.valid);
+    QCOMPARE(life.start, 0);
+    QCOMPARE(life.end, 1450);
+
+    QVERIFY(eval_sprite(s, 1450).visible);
+    QVERIFY(!eval_sprite(s, 1451).visible);
+}
+
+void TestScenePlayer::test_later_command_beats_loop_pass(){
+    sprite s;
+    loop_group loop;
+    loop.start = 0;
+    loop.count = 10;
+    loop.cmds << fade(0, 100, 1, 0);
+    s.loops << loop;
+
+    // Starts after the 5th pass did, so it wins until the 6th pass starts.
+    s.cmds << fade(450, 460, 0.3, 0.3);
+
+    QCOMPARE(eval_sprite(s, 470).alpha, 0.3);
+    QCOMPARE(eval_sprite(s, 550).alpha, 0.5);
+}
+
+void TestScenePlayer::test_triggers_are_ignored(){
+    sprite s;
+    trigger_group trigger;
+    trigger.trigger = "HitSoundClap";
+    trigger.start = 0;
+    trigger.end = 10000;
+    trigger.cmds << fade(0, 100, 1, 1);
+    s.triggers << trigger;
+
+    // Trigger commands alone don't make a sprite visible.
+    QVERIFY(!lifetime_of(s).valid);
+    QVERIFY(!eval_sprite(s, 50).visible);
+
+    s.cmds << fade(0, 1000, 0.5, 0.5);
+    QCOMPARE(eval_sprite(s, 50).alpha, 0.5);
+}
+
+void TestScenePlayer::test_animation_frames(){
+    sprite s;
+    s.path = "sb/flame.png";
+    s.frame_count = 4;
+    s.frame_delay = 100;
+    s.cmds << fade(1000, 3000, 1, 1);
+
+    QCOMPARE(frame_path("sb/flame.png", 3), QString("sb/flame3.png"));
+    QCOMPARE(frame_path("sb.v2/flame", 1), QString("sb.v2/flame1"));
+    QCOMPARE(image_paths(s), QStringList({"sb/flame0.png", "sb/flame1.png", "sb/flame2.png", "sb/flame3.png"}));
+
+    // Counted from the first command.
+    QCOMPARE(animation_frame(s, 0), 0);
+    QCOMPARE(animation_frame(s, 1099), 0);
+    QCOMPARE(animation_frame(s, 1100), 1);
+    QCOMPARE(animation_frame(s, 1399), 3);
+    QCOMPARE(animation_frame(s, 1400), 0);          // LoopForever wraps
+
+    s.loop_type = animation_loop_t::loop_once;
+    QCOMPARE(animation_frame(s, 1400), 3);          // LoopOnce holds the last
+    QCOMPARE(animation_frame(s, 2900), 3);
+
+    sprite still;
+    still.path = "a.png";
+    QCOMPARE(image_paths(still), QStringList({"a.png"}));
+}
+
+void TestScenePlayer::test_animation_draws_current_frame(){
+    sprite s;
+    s.path = "f.png";
+    s.x = 16;
+    s.y = 16;
+    s.frame_count = 2;
+    s.frame_delay = 100;
+    s.cmds << fade(0, 1000, 1, 1);
+
+    QPixmap red(32, 32);
+    red.fill(Qt::red);
+    QPixmap green(32, 32);
+    green.fill(Qt::green);
+    const QHash<QString, QPixmap> pixmaps{{"f0.png", red}, {"f1.png", green}};
+
+    auto pixel_at = [&](int ms){
+        QImage image(32, 32, QImage::Format_ARGB32);
+        image.fill(Qt::black);
+        QPainter p(&image);
+        draw_sprite(p, s, ms, pixmaps);
+        p.end();
+        return QColor(image.pixel(16, 16));
+    };
+
+    QCOMPARE(pixel_at(50), QColor(Qt::red));
+    QCOMPARE(pixel_at(150), QColor(Qt::green));
+    QCOMPARE(pixel_at(250), QColor(Qt::red));
+}
+
+void TestScenePlayer::test_missing_image_is_untinted_magenta(){
+    sprite s;
+    s.path = "nowhere.png";
+    s.x = 32;
+    s.y = 32;
+    s.cmds << fade(0, 1000, 1, 1);
+
+    command blue;
+    blue.type = cmd_t::color;
+    blue.t0 = 0;
+    blue.t1 = 1000;
+    blue.r0 = blue.r1 = 0;
+    blue.g0 = blue.g1 = 0;
+    blue.b0 = blue.b1 = 255;
+    s.cmds << blue;
+
+    // Scaled to almost nothing: the origin marker still shows.
+    s.cmds << make_scale(0, 1000, 0.01, 0.01);
+
+    QImage image(64, 64, QImage::Format_ARGB32);
+    image.fill(Qt::black);
+    QPainter p(&image);
+    draw_sprite(p, s, 500, {});
+    p.end();
+
+    bool magenta = false;
+    bool tinted = false;
+
+    for(int y = 26; y <= 38; ++y){
+        for(int x = 26; x <= 38; ++x){
+            const QColor c(image.pixel(x, y));
+            magenta = magenta || c == QColor(255, 0, 255);
+            tinted = tinted || (c.blue() > 0 && c.red() == 0);
+        }
+    }
+
+    QVERIFY(magenta);
+    QVERIFY(!tinted);
 }
 
 COSBY_TEST(TestScenePlayer)

@@ -6,6 +6,7 @@
 #include "scripting/js_bridge.h"
 
 #include <QJSEngine>
+#include <QRegularExpression>
 
 sprite *js_sprite_proxy::target() {
     sprite *s = bridge_ ? bridge_->sprite_for(index_, generation_) : nullptr;
@@ -21,17 +22,61 @@ sprite *js_sprite_proxy::target() {
 }
 
 void js_sprite_proxy::push(const command &cmd) {
-    if (sprite *s = target()) {
-        s->cmds.push_back(cmd);
+    sprite *s = target();
+
+    if (!s) {
+        return;
     }
+
+    switch (group_) {
+        case group_kind::none:
+            s->cmds.push_back(cmd);
+            break;
+
+        case group_kind::loop:
+            if (group_index_ >= 0 && group_index_ < s->loops.size()) {
+                s->loops[group_index_].cmds.push_back(cmd);
+            }
+            break;
+
+        case group_kind::trigger:
+            if (group_index_ >= 0 && group_index_ < s->triggers.size()) {
+                s->triggers[group_index_].cmds.push_back(cmd);
+            }
+            break;
+    }
+}
+
+js_sprite_proxy *js_sprite_proxy::fail(QJSValue::ErrorType type, const QString &message) {
+    if (QJSEngine *engine = qjsEngine(this)) {
+        engine->throwError(type, message);
+    }
+
+    return this;
+}
+
+bool js_sprite_proxy::parse(const QString &text, easing_t &out) {
+    if (parse_easing(text, out)) {
+        return true;
+    }
+
+    fail(QJSValue::TypeError,
+         QStringLiteral("Unknown easing \"%1\". Use a name such as \"QuadOut\" or osu!'s number (0-%2)")
+                 .arg(text).arg(easing_count - 1));
+    return false;
 }
 
 js_sprite_proxy *js_sprite_proxy::fade(const QString &easing, int t0, int t1,
                                        double a0, double a1) {
+    easing_t ease{};
+    if (!parse(easing, ease)) {
+        return this;
+    }
+
     command cmd;
 
     cmd.type = cmd_t::fade;
-    cmd.easing = easing;
+    cmd.easing = ease;
     cmd.t0 = t0;
     cmd.t1 = t1;
     cmd.v0 = a0;
@@ -43,9 +88,14 @@ js_sprite_proxy *js_sprite_proxy::fade(const QString &easing, int t0, int t1,
 
 js_sprite_proxy *js_sprite_proxy::move(const QString &easing, int t0, int t1,
                                        double x0, double y0, double x1, double y1){
+    easing_t ease{};
+    if (!parse(easing, ease)) {
+        return this;
+    }
+
     command cmd;
     cmd.type = cmd_t::move;
-    cmd.easing = easing;
+    cmd.easing = ease;
     cmd.t0 = t0;
     cmd.t1 = t1;
     cmd.x0 = x0;
@@ -59,10 +109,15 @@ js_sprite_proxy *js_sprite_proxy::move(const QString &easing, int t0, int t1,
 
 js_sprite_proxy *js_sprite_proxy::scale(const QString &easing, int t0, int t1,
                                         double s0, double s1){
+    easing_t ease{};
+    if (!parse(easing, ease)) {
+        return this;
+    }
+
     command cmd;
 
     cmd.type = cmd_t::scale;
-    cmd.easing = easing;
+    cmd.easing = ease;
     cmd.t0 = t0;
     cmd.t1 = t1;
     cmd.v0 = s0;
@@ -74,10 +129,15 @@ js_sprite_proxy *js_sprite_proxy::scale(const QString &easing, int t0, int t1,
 
 js_sprite_proxy *js_sprite_proxy::rotate(const QString &easing, int t0, int t1,
                                          double r0, double r1){
+    easing_t ease{};
+    if (!parse(easing, ease)) {
+        return this;
+    }
+
     command cmd;
 
     cmd.type = cmd_t::rotate;
-    cmd.easing = easing;
+    cmd.easing = ease;
     cmd.t0 = t0;
     cmd.t1 = t1;
     cmd.v0 = r0;
@@ -89,10 +149,15 @@ js_sprite_proxy *js_sprite_proxy::rotate(const QString &easing, int t0, int t1,
 
 js_sprite_proxy *js_sprite_proxy::color(const QString &easing, int t0, int t1,
                                         double r, double g, double b){
+    easing_t ease{};
+    if (!parse(easing, ease)) {
+        return this;
+    }
+
     command cmd;
 
     cmd.type = cmd_t::color;
-    cmd.easing = easing;
+    cmd.easing = ease;
     cmd.t0 = t0;
     cmd.t1 = t1;
 
@@ -285,7 +350,10 @@ js_sprite_proxy *js_sprite_proxy::color(const QJSValue &opts)
     command cmd;
     
     cmd.type = cmd_t::color;
-    cmd.easing = easing;
+
+    if (!parse(easing, cmd.easing)) {
+        return this;
+    }
 
     cmd.t0 = t0;
     cmd.t1 = t1;
@@ -313,7 +381,10 @@ js_sprite_proxy *js_sprite_proxy::moveX(const QJSValue &opts)
     command cmd;
 
     cmd.type = cmd_t::move_x;
-    cmd.easing = readEasing(opts);
+    if (!parse(readEasing(opts), cmd.easing)) {
+        return this;
+    }
+
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
     cmd.v0 = readNumber(opts, "startValue", base.x);
@@ -336,7 +407,10 @@ js_sprite_proxy *js_sprite_proxy::moveY(const QJSValue &opts)
     command cmd;
 
     cmd.type = cmd_t::move_y;
-    cmd.easing = readEasing(opts);
+    if (!parse(readEasing(opts), cmd.easing)) {
+        return this;
+    }
+
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
     cmd.v0 = readNumber(opts, "startValue", base.y);
@@ -353,7 +427,10 @@ js_sprite_proxy *js_sprite_proxy::scaleVec(const QJSValue &opts)
 
     cmd.type = cmd_t::scale_vec;
 
-    cmd.easing = readEasing(opts);
+    if (!parse(readEasing(opts), cmd.easing)) {
+        return this;
+    }
+
     cmd.t0 = readInt(opts, "startTime", 0);
     cmd.t1 = readInt(opts, "endTime", 0);
 
@@ -409,5 +486,107 @@ js_sprite_proxy *js_sprite_proxy::additive(const QJSValue &opts)
 
     push(cmd);
 
+    return this;
+}
+
+namespace {
+    // osu!'s trigger names: Passing, Failing, or HitSound followed by an
+    // optional sample set, additions sample set, addition and custom sample
+    // set number ("HitSoundClap", "HitSoundSoftWhistle", "HitSound1").
+    bool is_trigger_name(const QString &name) {
+        static const QRegularExpression pattern(QStringLiteral(
+                "^(Passing|Failing|HitSound(All|Normal|Soft|Drum)?(All|Normal|Soft|Drum)?(Whistle|Finish|Clap)?\\d*)$"));
+
+        return pattern.match(name).hasMatch();
+    }
+}
+
+bool js_sprite_proxy::run_group(const QJSValue &body, group_kind kind, qsizetype group_index) {
+    QJSEngine *engine = qjsEngine(this);
+
+    if (!engine) {
+        return false;
+    }
+
+    // No parent: the JS garbage collector owns it.
+    auto *group = new js_sprite_proxy(bridge_, index_, generation_, kind, group_index);
+    const QJSValue result = body.call({engine->newQObject(group)});
+
+    if (result.isError()) {
+        // Pass the script's own error on, with its line.
+        engine->throwError(result);
+        return false;
+    }
+
+    return true;
+}
+
+js_sprite_proxy *js_sprite_proxy::loop(int start, int count, const QJSValue &body) {
+    if (group_ != group_kind::none) {
+        return fail(QJSValue::TypeError, QStringLiteral("A loop or trigger can't contain another loop"));
+    }
+
+    if (!body.isCallable()) {
+        return fail(QJSValue::TypeError, QStringLiteral("loop(start, count, body): body must be a function, e.g. l => l.fade(...)"));
+    }
+
+    if (count < 1) {
+        return fail(QJSValue::RangeError, QStringLiteral("loop(start, count, body): count is the number of passes and must be at least 1 (got %1)").arg(count));
+    }
+
+    sprite *s = target();
+
+    if (!s) {
+        return this;
+    }
+
+    loop_group group;
+    group.start = start;
+    group.count = count;
+    s->loops.push_back(group);
+
+    // The callback may create sprites, which moves `s`; only the index is kept.
+    run_group(body, group_kind::loop, s->loops.size() - 1);
+    return this;
+}
+
+js_sprite_proxy *js_sprite_proxy::trigger(const QString &trigger, int start, int end,
+                                          const QJSValue &body, int group) {
+    if (group_ != group_kind::none) {
+        return fail(QJSValue::TypeError, QStringLiteral("A loop or trigger can't contain another trigger"));
+    }
+
+    if (!is_trigger_name(trigger)) {
+        return fail(QJSValue::TypeError,
+                    QStringLiteral("Unknown trigger \"%1\". Use Passing, Failing or HitSound..., "
+                                   "e.g. \"HitSoundClap\" or \"HitSoundSoftWhistle\"").arg(trigger));
+    }
+
+    if (!body.isCallable()) {
+        return fail(QJSValue::TypeError, QStringLiteral("trigger(name, start, end, body): body must be a function, e.g. t => t.scale(...)"));
+    }
+
+    if (end < start) {
+        return fail(QJSValue::RangeError, QStringLiteral("trigger(name, start, end, body): end (%1) is before start (%2)").arg(end).arg(start));
+    }
+
+    if (group < 0) {
+        return fail(QJSValue::RangeError, QStringLiteral("trigger(...): group must be 0 (none) or a positive number (got %1)").arg(group));
+    }
+
+    sprite *s = target();
+
+    if (!s) {
+        return this;
+    }
+
+    trigger_group entry;
+    entry.trigger = trigger;
+    entry.start = start;
+    entry.end = end;
+    entry.group = group;
+    s->triggers.push_back(entry);
+
+    run_group(body, group_kind::trigger, s->triggers.size() - 1);
     return this;
 }

@@ -1,6 +1,7 @@
 #include "project/storyboard_export.h"
 #include "project/asset_paths.h"
 #include "project/path_utils.h"
+#include "core/sprite_timing.h"
 
 #include <QDir>
 #include <QFile>
@@ -66,6 +67,20 @@ QString osb_file_name(const QString& osu_file_path){
     return name + ".osb";
 }
 
+QStringList used_files(const scene& sc){
+    QStringList files;
+
+    for(const sprite& s : sc.sprites){
+        files << image_paths(s);
+    }
+
+    for(const sample& smp : sc.samples){
+        files << smp.path;
+    }
+
+    return files;
+}
+
 bool export_plan::replaces_files() const{
     if(osb_replaces){
         return true;
@@ -118,8 +133,8 @@ std::optional<export_plan> plan_export(
 
     QSet<QString> seen;
 
-    for(const sprite& s : sc.sprites){
-        const QString path = normalize_asset_path(s.path);
+    for(const QString& used : used_files(sc)){
+        const QString path = normalize_asset_path(used);
 
         if(seen.contains(path) || !is_safe_asset_path(path)){
             continue;

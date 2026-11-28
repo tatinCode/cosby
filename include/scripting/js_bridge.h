@@ -42,6 +42,13 @@ class js_bridge : public QObject{
 
         Q_INVOKABLE QObject* sprite(const QString& path, const QJSValue& opts, int source_line = 0);
 
+        // Like sprite(), plus opts.frameCount, opts.frameDelay (ms) and
+        // opts.loopType ("LoopForever" or "LoopOnce").
+        Q_INVOKABLE QObject* animation(const QString& path, const QJSValue& opts, int source_line = 0);
+
+        // A sound at `time`; opts.layer (not Overlay) and opts.volume (0-100).
+        Q_INVOKABLE void sample(int time, const QString& path, const QJSValue& opts, int source_line = 0);
+
     private:
         QJSEngine* eng_;
         scene* sc_;

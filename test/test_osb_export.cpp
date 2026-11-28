@@ -1,6 +1,7 @@
 #include "core/osb_writer.h"
 #include "project/asset_paths.h"
 #include "project/storyboard_export.h"
+#include "project/asset_check.h"
 #include "cosby_test.h"
 
 #include <QDir>
@@ -10,10 +11,10 @@
 #include <cmath>
 
 namespace {
-    command make_command(cmd_t type, int t0, int t1, double v0 = 0.0, double v1 = 0.0, QString easing = "Linear"){
+    command make_command(cmd_t type, int t0, int t1, double v0 = 0.0, double v1 = 0.0, easing_t easing = easing_t::linear){
         command cmd;
         cmd.type = type;
-        cmd.easing = std::move(easing);
+        cmd.easing = easing;
         cmd.t0 = t0;
         cmd.t1 = t1;
         cmd.v0 = v0;
@@ -64,7 +65,7 @@ class TestOsbWriter : public QObject{
             sc.sprites[0].cmds.push_back(make_command(cmd_t::fade, 0, 1000, 0, 1));
 
             sc.add_sprite("bg.jpg", layer_t::background, origin_t::top_left, 0, 0);
-            command move = make_command(cmd_t::move, 0, 500, 0, 0, "Out");
+            command move = make_command(cmd_t::move, 0, 500, 0, 0, easing_t::out);
             move.x1 = 10.5;
             move.y1 = -3;
             sc.sprites[1].cmds.push_back(move);
@@ -96,7 +97,7 @@ class TestOsbWriter : public QObject{
             sprite s;
             s.path = "a.png";
 
-            s.cmds << make_command(cmd_t::scale, 0, 100, 1, 2, "In")
+            s.cmds << make_command(cmd_t::scale, 0, 100, 1, 2, easing_t::in)
                    << make_command(cmd_t::rotate, 0, 100, 0, 3.14159265)
                    << make_command(cmd_t::move_x, 0, 100, 1, 2)
                    << make_command(cmd_t::move_y, 0, 100, 3, 4);
@@ -182,6 +183,165 @@ class TestOsbWriter : public QObject{
             QCOMPARE(osb_layer_name(layer_t::overlay), QString("Overlay"));
         }
 
+        void writes_osu_easing_numbers(){
+            sprite s;
+            s.path = "a.png";
+            s.cmds << make_command(cmd_t::fade, 0, 100, 0, 1, easing_t::bounce_out)
+                   << make_command(cmd_t::scale, 0, 100, 1, 2, easing_t::elastic_half_out);
+
+            QCOMPARE(sprite_lines(s).mid(1), QStringList({" F,33,0,100,0,1", " S,26,0,100,1,2"}));
+        }
+
+        void writes_animations(){
+            sprite s = faded_sprite("sb/flame.png");
+            s.layer = layer_t::background;
+            s.frame_count = 8;
+            s.frame_delay = 41.6667;
+            QCOMPARE(sprite_lines(s).at(0),
+                     QString("Animation,Background,Centre,\"sb/flame.png\",320,240,8,41.6667,LoopForever"));
+
+            s.loop_type = animation_loop_t::loop_once;
+            QVERIFY(sprite_lines(s).at(0).endsWith(",8,41.6667,LoopOnce"));
+        }
+
+        void warns_about_animation_paths_with_extra_dots(){
+            // osu!lazer puts the frame number before every dot.
+            scene sc;
+            sprite s = faded_sprite("sb/flame.v2.png");
+            s.frame_count = 2;
+            s.frame_delay = 100;
+            s.source_line = 4;
+            sc.sprites << s;
+
+            QList<osb_warning> warnings;
+            write_osb(sc, &warnings);
+            QCOMPARE(warnings.size(), 1);
+            QVERIFY(warnings[0].message.contains("exactly one dot"));
+            QCOMPARE(warnings[0].line, 4);
+        }
+
+        void writes_loops_and_triggers_unexpanded(){
+            sprite s = faded_sprite("a.png");
+
+            loop_group loop;
+            loop.start = 1000;
+            loop.count = 4;
+            loop.cmds << make_command(cmd_t::scale, 0, 250, 1, 1.5, easing_t::sine_out)
+                      << make_command(cmd_t::scale, 250, 500, 1.5, 1);
+            s.loops << loop;
+
+            trigger_group clap;
+            clap.trigger = "HitSoundClap";
+            clap.start = 0;
+            clap.end = 60000;
+            clap.cmds << make_command(cmd_t::fade, 0, 100, 1, 0);
+            s.triggers << clap;
+
+            trigger_group failing;
+            failing.trigger = "Failing";
+            failing.start = 500;
+            failing.end = 9000;
+            failing.group = 2;
+            failing.cmds << make_command(cmd_t::move_x, 0, 0, 10, 10);
+            s.triggers << failing;
+
+            QCOMPARE(sprite_lines(s).mid(1), QStringList({
+                " F,0,0,1000,0,1",
+                " L,1000,4",
+                "  S,16,0,250,1,1.5",
+                "  S,0,250,500,1.5,1",
+                " T,HitSoundClap,0,60000",
+                "  F,0,0,100,1,0",
+                " T,Failing,500,9000,2",
+                "  MX,0,0,0,10",
+            }));
+        }
+
+        void leaves_out_empty_groups_and_warns(){
+            scene sc;
+            sprite s = faded_sprite("a.png");
+            s.source_line = 9;
+
+            loop_group empty_loop;
+            empty_loop.start = 100;
+            s.loops << empty_loop;
+
+            trigger_group empty_trigger;
+            empty_trigger.trigger = "Passing";
+            s.triggers << empty_trigger;
+            sc.sprites << s;
+
+            QList<osb_warning> warnings;
+            const QString text = write_osb(sc, &warnings);
+
+            QVERIFY(!text.contains(" L,"));
+            QVERIFY(!text.contains(" T,"));
+            QCOMPARE(warnings.size(), 2);
+            QVERIFY(warnings[0].message.contains("loop at 100 ms has no commands"));
+            QVERIFY(warnings[1].message.contains("Passing trigger has no commands"));
+            QCOMPARE(warnings[1].line, 9);
+        }
+
+        void warns_when_only_triggers_would_show_a_sprite(){
+            scene sc;
+            sprite s;
+            s.path = "a.png";
+
+            trigger_group trigger;
+            trigger.trigger = "HitSoundClap";
+            trigger.end = 1000;
+            trigger.cmds << make_command(cmd_t::fade, 0, 100, 1, 0);
+            s.triggers << trigger;
+            sc.sprites << s;
+
+            QList<osb_warning> warnings;
+            write_osb(sc, &warnings);
+            QCOMPARE(warnings.size(), 1);
+            QVERIFY(warnings[0].message.contains("only has trigger commands"));
+        }
+
+        void a_loop_alone_is_enough_to_show_a_sprite(){
+            scene sc;
+            sprite s;
+            s.path = "a.png";
+
+            loop_group loop;
+            loop.cmds << make_command(cmd_t::fade, 0, 100, 1, 0);
+            s.loops << loop;
+            sc.sprites << s;
+
+            QList<osb_warning> warnings;
+            write_osb(sc, &warnings);
+            QVERIFY(warnings.isEmpty());
+        }
+
+        void writes_samples_with_osu_layer_numbers(){
+            scene sc;
+            sc.samples << sample{100, layer_t::background, "sb/a.wav", 100, 0}
+                       << sample{200, layer_t::fail, "sb\\b.wav", 50, 0}
+                       << sample{300, layer_t::pass, "c.ogg", 0, 0}
+                       << sample{400, layer_t::foreground, "d.mp3", 120, 0};
+
+            const QString text = write_osb(sc);
+            QVERIFY(text.endsWith(
+                "//Storyboard Sound Samples\n"
+                "Sample,100,0,\"sb/a.wav\",100\n"
+                "Sample,200,1,\"sb/b.wav\",50\n"
+                "Sample,300,2,\"c.ogg\",0\n"
+                "Sample,400,3,\"d.mp3\",100\n"));
+        }
+
+        void warns_about_unsafe_sample_paths(){
+            scene sc;
+            sc.samples << sample{0, layer_t::foreground, "../x.wav", 100, 12};
+
+            QList<osb_warning> warnings;
+            write_osb(sc, &warnings);
+            QCOMPARE(warnings.size(), 1);
+            QVERIFY(warnings[0].message.startsWith("../x.wav: sound path"));
+            QCOMPARE(warnings[0].line, 12);
+        }
+
         void writes_paths_with_forward_slashes(){
             QCOMPARE(sprite_lines(faded_sprite("sb\\stars\\a.png")).at(0),
                      QString("Sprite,Foreground,Centre,\"sb/stars/a.png\",320,240"));
@@ -198,9 +358,7 @@ class TestOsbWriter : public QObject{
             sprite odd = faded_sprite("../outside.png");
             odd.name = "odd";
             odd.source_line = 7;
-            odd.cmds << make_command(cmd_t::fade, 0, 100, 0, 1, "Wobbly")
-                     << make_command(cmd_t::scale, 0, 100, 1, 2, "Wobbly")
-                     << make_command(cmd_t::move_x, 500, 200, 1, 2);
+            odd.cmds << make_command(cmd_t::move_x, 500, 200, 1, 2);
             sc.sprites << odd;
 
             QList<osb_warning> warnings;
@@ -208,17 +366,15 @@ class TestOsbWriter : public QObject{
 
             // Still written, best effort.
             QVERIFY(text.contains("Sprite,Foreground,Centre,\"empty.png\",0,0"));
-            QVERIFY(text.contains(" F,0,0,100,0,1"));           // unknown easing -> Linear
             QVERIFY(text.contains(" MX,0,500,500,1,2"));        // ends before it starts -> instant
 
-            QCOMPARE(warnings.size(), 4);
+            QCOMPARE(warnings.size(), 3);
             QVERIFY(warnings[0].message.startsWith("empty.png: has no commands"));
             QCOMPARE(warnings[0].line, 3);
 
             QVERIFY(warnings[1].message.startsWith("odd: image path \"../outside.png\""));
-            QVERIFY(warnings[2].message.contains("unknown easing \"Wobbly\""));     // once, not twice
-            QVERIFY(warnings[3].message.contains("ends (200 ms) before it starts (500 ms)"));
-            QCOMPARE(warnings[3].line, 7);
+            QVERIFY(warnings[2].message.contains("ends (200 ms) before it starts (500 ms)"));
+            QCOMPARE(warnings[2].line, 7);
         }
 };
 
@@ -369,6 +525,41 @@ class TestStoryboardExport : public QObject{
             QVERIFY(!plan_export({}, f.osu(), "../a.osb", f.project(), f.assets(), f.copy(), &error));
         }
 
+        void lists_every_used_file(){
+            scene sc = scene_using({"bg.jpg"});
+
+            sprite flame = faded_sprite("sb/flame.png");
+            flame.frame_count = 3;
+            flame.frame_delay = 50;
+            sc.sprites << flame;
+            sc.samples << sample{0, layer_t::foreground, "sb/hit.wav", 100, 0};
+
+            QCOMPARE(used_files(sc), QStringList({"bg.jpg", "sb/flame0.png", "sb/flame1.png",
+                                                  "sb/flame2.png", "sb/hit.wav"}));
+        }
+
+        void copies_animation_frames_and_sounds(){
+            folders f;
+            QVERIFY(write_file(f.assets() + "/sb/flame0.png", "0"));
+            QVERIFY(write_file(f.assets() + "/sb/flame1.png", "1"));
+            QVERIFY(write_file(f.assets() + "/sb/hit.wav", "hit"));
+
+            scene sc;
+            sprite flame = faded_sprite("sb/flame.png");
+            flame.frame_count = 3;
+            flame.frame_delay = 50;
+            sc.sprites << flame;
+            sc.samples << sample{0, layer_t::foreground, "sb/hit.wav", 100, 0};
+
+            const auto p = plan(f, sc);
+            QVERIFY(p.has_value());
+            QCOMPARE(p->copies.size(), 3);
+            QCOMPARE(p->copies[0].path, QString("sb/flame0.png"));
+            QCOMPARE(p->copies[1].path, QString("sb/flame1.png"));
+            QCOMPARE(p->copies[2].path, QString("sb/hit.wav"));
+            QCOMPARE(p->missing, QStringList({"sb/flame2.png"}));
+        }
+
         void writes_the_osb_and_images(){
             folders f;
             QVERIFY(write_file(f.assets() + "/sb/deep/a.png", "image"));
@@ -389,7 +580,74 @@ class TestStoryboardExport : public QObject{
         }
 };
 
+class TestAssetCheck : public QObject{
+    Q_OBJECT
+
+    private slots:
+        void reports_each_missing_file_once_at_its_first_line(){
+            QTemporaryDir dir;
+            QVERIFY(write_file(dir.filePath("here.png"), "x"));
+
+            scene sc;
+            sprite here = faded_sprite("here.png");
+            sprite gone = faded_sprite("sb\\gone.png");
+            gone.source_line = 5;
+            sprite gone_again = faded_sprite("sb/gone.png");
+            gone_again.source_line = 8;
+            sprite unsafe = faded_sprite("/abs/x.png");
+            unsafe.source_line = 9;
+            sc.sprites << here << gone << gone_again << unsafe;
+
+            sc.samples << sample{0, layer_t::foreground, "boom.wav", 100, 11};
+
+            const auto problems = check_assets(sc, {dir.path()});
+            QCOMPARE(problems.size(), 3);
+            QCOMPARE(problems[0].message, QString("sb/gone.png: image not found in assets/ or beatmap/"));
+            QCOMPARE(problems[0].source_line, 5);
+            QVERIFY(problems[1].message.contains("must be relative"));
+            QCOMPARE(problems[1].source_line, 9);
+            QCOMPARE(problems[2].message, QString("boom.wav: sound not found in assets/ or beatmap/"));
+            QCOMPARE(problems[2].source_line, 11);
+        }
+
+        void groups_missing_animation_frames(){
+            QTemporaryDir dir;
+            QVERIFY(write_file(dir.filePath("f0.png"), "x"));
+            QVERIFY(write_file(dir.filePath("f2.png"), "x"));
+
+            scene sc;
+            sprite some = faded_sprite("f.png");
+            some.frame_count = 4;
+            some.frame_delay = 10;
+            sprite none = faded_sprite("g.png");
+            none.frame_count = 3;
+            none.frame_delay = 10;
+            sc.sprites << some << none;
+
+            const auto problems = check_assets(sc, {dir.path()});
+            QCOMPARE(problems.size(), 2);
+            QCOMPARE(problems[0].message, QString("f.png: 2 of 4 animation frames not found: f1.png, f3.png"));
+            QCOMPARE(problems[1].message,
+                     QString("g.png: none of the 3 animation frames found (g0.png ... g2.png) in assets/ or beatmap/"));
+        }
+
+        void everything_found_means_no_problems(){
+            QTemporaryDir dir;
+            QVERIFY(write_file(dir.filePath("a.png"), "x"));
+            QVERIFY(check_assets(scene_with("a.png"), {dir.path()}).isEmpty());
+            QVERIFY(check_assets(scene{}, {}).isEmpty());
+        }
+
+    private:
+        static scene scene_with(const QString& path){
+            scene sc;
+            sc.sprites << faded_sprite(path);
+            return sc;
+        }
+};
+
 COSBY_TEST(TestOsbWriter)
+COSBY_TEST(TestAssetCheck)
 COSBY_TEST(TestAssetPaths)
 COSBY_TEST(TestStoryboardExport)
 #include "test_osb_export.moc"

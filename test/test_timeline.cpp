@@ -274,6 +274,99 @@ class TestTimelineModel : public QObject {
             QCOMPARE(model.rows().at(1).label, QString("beat flash"));
         }
 
+        void loops_and_triggers_get_their_own_lanes(){
+            scene sc;
+            const qsizetype i = add(sc, "a.png", layer_t::foreground, 3, {make_command(cmd_t::fade, 0, 100)});
+
+            loop_group loop;
+            loop.start = 1000;
+            loop.count = 3;
+            loop.cmds << make_command(cmd_t::scale, 100, 300);
+            sc.sprites[i].loops << loop << loop_group{};    // the second is empty
+
+            trigger_group trigger;
+            trigger.trigger = "HitSoundClap";
+            trigger.start = 500;
+            trigger.end = 9000;
+            trigger.cmds << make_command(cmd_t::fade, 0, 50);
+            sc.sprites[i].triggers << trigger;
+
+            timeline_model model;
+            model.set_scene(sc);
+            model.set_expanded(model.rows().at(1).key, true);
+
+            QCOMPARE(labels(model), (QStringList{"Foreground", "  a.png", "    Fade", "    Loops", "    Triggers"}));
+
+            // Lifetime: up to the end of the third pass (1100 + 3 * 200).
+            QCOMPARE(model.rows().at(1).bars.first().t1, 1700);
+
+            const timeline_row& loops = model.rows().at(3);
+            QCOMPARE(loops.kind, timeline_row_kind::loop_lane);
+            QCOMPARE(loops.bars.size(), qsizetype(2));
+            QCOMPARE(loops.bars[0].kind, timeline_bar_kind::loop);
+            QCOMPARE(loops.bars[0].t0, 1100);
+            QCOMPARE(loops.bars[0].t1, 1700);
+            QCOMPARE(loops.bars[0].command, qsizetype(0));
+            QCOMPARE(loops.bars[1].t0, 0);               // empty: a marker at its start
+            QCOMPARE(loops.bars[1].t1, 0);
+
+            const timeline_row& triggers = model.rows().at(4);
+            QCOMPARE(triggers.kind, timeline_row_kind::trigger_lane);
+            QCOMPARE(triggers.bars.first().kind, timeline_bar_kind::trigger);
+            QCOMPARE(triggers.bars.first().t1, 9000);
+
+            // Triggers aren't part of the lifetime, but the timeline covers them.
+            QCOMPARE(model.time_begin(), 0);
+            QCOMPARE(model.time_end(), 9000);
+        }
+
+        void a_sprite_with_only_a_loop_can_expand(){
+            scene sc;
+            const qsizetype i = add(sc, "a.png", layer_t::foreground, 1);
+            loop_group loop;
+            loop.cmds << make_command(cmd_t::fade, 0, 10);
+            sc.sprites[i].loops << loop;
+
+            timeline_model model;
+            model.set_scene(sc);
+            QVERIFY(model.rows().at(1).expandable);
+        }
+
+        void samples_have_a_row_of_their_own(){
+            scene sc;
+            add(sc, "a.png", layer_t::foreground, 1, {make_command(cmd_t::fade, 0, 100)});
+            sc.samples << sample{2500, layer_t::foreground, "hit.wav", 100, 4}
+                       << sample{50, layer_t::pass, "pass.wav", 60, 5};
+
+            timeline_model model;
+            model.set_scene(sc);
+
+            QCOMPARE(labels(model), (QStringList{"Foreground", "  a.png", "Samples"}));
+
+            const timeline_row& row = model.rows().last();
+            QCOMPARE(row.kind, timeline_row_kind::samples);
+            QCOMPARE(row.detail, QString("2 sounds"));
+            QCOMPARE(row.bars.size(), qsizetype(2));
+            QCOMPARE(row.bars[0].kind, timeline_bar_kind::sample);
+            QCOMPARE(row.bars[0].t0, 2500);
+            QCOMPARE(row.bars[1].command, qsizetype(1));
+
+            QCOMPARE(model.time_end(), 2500);
+        }
+
+        void only_samples_is_not_empty(){
+            scene sc;
+            sc.samples << sample{100, layer_t::foreground, "hit.wav", 100, 1};
+
+            timeline_model model;
+            model.set_scene(sc);
+
+            QVERIFY(!model.is_empty());
+            QCOMPARE(labels(model), QStringList{"Samples"});
+            QCOMPARE(model.time_begin(), 100);
+            QCOMPARE(model.time_end(), 100);
+        }
+
         void labels_with_percent_signs_are_literal(){
             scene sc;
             add(sc, "100%25%2.png", layer_t::foreground, 1);
@@ -450,6 +543,37 @@ class TestTimelineView : public QObject {
 
             QCOMPARE(view->model().rows().size(), qsizetype(9));
             QVERIFY(view->model().rows().at(3).expanded);
+        }
+
+        void paints_loops_triggers_and_samples(){
+            scene sc;
+            const qsizetype i = sc.add_sprite("a.png", layer_t::foreground, origin_t::center, 0, 0);
+            sc.sprites[i].source_line = 1;
+            sc.sprites[i].cmds = {fade(0, 100)};
+
+            loop_group many;
+            many.count = 1000000;              // ticks must not be drawn one by one
+            many.cmds << fade(0, 10);
+            loop_group few;
+            few.start = 200;
+            few.count = 4;
+            few.cmds << fade(0, 500);
+            sc.sprites[i].loops << many << few << loop_group{};
+
+            trigger_group trigger;
+            trigger.trigger = "Passing";
+            trigger.end = 3000;
+            sc.sprites[i].triggers << trigger;
+            sc.samples << sample{1500, layer_t::foreground, "hit.wav", 100, 2};
+
+            TimelineView view;
+            view.resize(900, 400);
+            view.show();
+            view.setScene(&sc);
+            QTest::mouseClick(&view, Qt::LeftButton, {}, QPoint(6 + 14 + 4, row_y(1)));   // expand a.png
+
+            QCOMPARE(view.model().rows().size(), qsizetype(6));     // layer, sprite, Fade, Loops, Triggers, Samples
+            QVERIFY(!view.grab().isNull());
         }
 
         void clicking_a_label_only_selects(){

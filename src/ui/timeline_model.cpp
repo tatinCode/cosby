@@ -1,4 +1,5 @@
 #include "ui/timeline_model.h"
+#include "core/sprite_timing.h"
 
 #include <QFileInfo>
 
@@ -11,23 +12,14 @@ namespace {
         int t1;
     };
 
-    // Commands with t1 <= t0 are instants (or "from t0 on" for flags).
-    int command_end(const command& cmd){
-        return std::max(cmd.t0, cmd.t1);
-    }
-
     bool lifetime(const sprite& s, span& out){
-        if(s.cmds.isEmpty()){
+        const time_span life = lifetime_of(s);
+
+        if(!life.valid){
             return false;
         }
 
-        out = {s.cmds.front().t0, command_end(s.cmds.front())};
-
-        for(const command& cmd : s.cmds){
-            out.t0 = std::min(out.t0, cmd.t0);
-            out.t1 = std::max(out.t1, command_end(cmd));
-        }
-
+        out = {life.start, life.end};
         return true;
     }
 
@@ -142,7 +134,7 @@ void timeline_model::add_sprite_rows(qsizetype index, int depth, const QString& 
     row.detail = line_detail(s.source_line);
     row.source_line = s.source_line;
     row.key = key;
-    row.expandable = !s.cmds.isEmpty();
+    row.expandable = !s.cmds.isEmpty() || !s.loops.isEmpty() || !s.triggers.isEmpty();
     row.expanded = row.expandable && is_expanded(key, false);
     row.first_sprite = index;
     row.sprite_count = 1;
@@ -186,6 +178,7 @@ void timeline_model::add_sprite_rows(qsizetype index, int depth, const QString& 
             timeline_bar bar;
             bar.t0 = cmd.t0;
             bar.t1 = cmd.t1;
+            bar.kind = timeline_bar_kind::command;
             bar.sprite = index;
             bar.command = c;
             bar.type = cmd.type;
@@ -196,6 +189,54 @@ void timeline_model::add_sprite_rows(qsizetype index, int depth, const QString& 
             m_rows.push_back(std::move(lane));
         }
     }
+
+    auto group_lane = [&](timeline_row_kind kind, const QString& label, const QString& suffix){
+        timeline_row lane;
+        lane.kind = kind;
+        lane.layer = s.layer;
+        lane.depth = depth + 1;
+        lane.label = label;
+        lane.source_line = s.source_line;
+        lane.key = key + suffix;
+        lane.first_sprite = index;
+        lane.sprite_count = 1;
+        return lane;
+    };
+
+    timeline_row loops = group_lane(timeline_row_kind::loop_lane, QStringLiteral("Loops"), QStringLiteral("/loops"));
+
+    for(qsizetype l = 0; l < s.loops.size(); ++l){
+        const time_span span = span_of(s.loops.at(l));
+
+        timeline_bar bar;
+        // An empty loop has no time of its own: a marker at its start.
+        bar.t0 = span.valid ? span.start : s.loops.at(l).start;
+        bar.t1 = span.valid ? span.end : bar.t0;
+        bar.kind = timeline_bar_kind::loop;
+        bar.sprite = index;
+        bar.command = l;
+        loops.bars.push_back(bar);
+    }
+
+    if(!loops.bars.isEmpty()){
+        m_rows.push_back(std::move(loops));
+    }
+
+    timeline_row triggers = group_lane(timeline_row_kind::trigger_lane, QStringLiteral("Triggers"), QStringLiteral("/triggers"));
+
+    for(qsizetype t = 0; t < s.triggers.size(); ++t){
+        timeline_bar bar;
+        bar.t0 = s.triggers.at(t).start;
+        bar.t1 = s.triggers.at(t).end;
+        bar.kind = timeline_bar_kind::trigger;
+        bar.sprite = index;
+        bar.command = t;
+        triggers.bars.push_back(bar);
+    }
+
+    if(!triggers.bars.isEmpty()){
+        m_rows.push_back(std::move(triggers));
+    }
 }
 
 void timeline_model::rebuild(){
@@ -204,20 +245,31 @@ void timeline_model::rebuild(){
     m_time_begin = 1;
     m_time_end = 0;
 
-    for(const sprite& s : m_scene.sprites){
-        span life{};
-        if(!lifetime(s, life)){
-            continue;
-        }
-
+    auto include_time = [this](int t0, int t1){
         if(m_time_begin > m_time_end){
-            m_time_begin = life.t0;
-            m_time_end = life.t1;
+            m_time_begin = t0;
+            m_time_end = t1;
         }
         else{
-            m_time_begin = std::min(m_time_begin, life.t0);
-            m_time_end = std::max(m_time_end, life.t1);
+            m_time_begin = std::min(m_time_begin, t0);
+            m_time_end = std::max(m_time_end, t1);
         }
+    };
+
+    for(const sprite& s : m_scene.sprites){
+        span life{};
+        if(lifetime(s, life)){
+            include_time(life.t0, life.t1);
+        }
+
+        // Not part of the lifetime, but shown in their lane.
+        for(const trigger_group& trigger : s.triggers){
+            include_time(trigger.start, trigger.end);
+        }
+    }
+
+    for(const sample& smp : m_scene.samples){
+        include_time(smp.time, smp.time);
     }
 
     for(layer_t layer : layer_order){
@@ -324,4 +376,26 @@ void timeline_model::rebuild(){
             }
         }
     }
+
+    if(m_scene.samples.isEmpty()){
+        return;
+    }
+
+    timeline_row samples;
+    samples.kind = timeline_row_kind::samples;
+    samples.label = QStringLiteral("Samples");
+    samples.detail = m_scene.samples.size() == 1
+        ? QStringLiteral("1 sound")
+        : QStringLiteral("%1 sounds").arg(m_scene.samples.size());
+    samples.key = QStringLiteral("samples");
+
+    for(qsizetype i = 0; i < m_scene.samples.size(); ++i){
+        timeline_bar bar;
+        bar.t0 = bar.t1 = m_scene.samples.at(i).time;
+        bar.kind = timeline_bar_kind::sample;
+        bar.command = i;
+        samples.bars.push_back(bar);
+    }
+
+    m_rows.push_back(std::move(samples));
 }

@@ -1,9 +1,8 @@
 #include "core/osb_writer.h"
-#include "core/easing.h"
+#include "core/sprite_timing.h"
 #include "project/asset_paths.h"
 
 #include <QFileInfo>
-#include <QSet>
 #include <QStringList>
 
 #include <algorithm>
@@ -136,6 +135,31 @@ QString write_osb(const scene& sc, QList<osb_warning>* warnings){
         }
     };
 
+    // One command line; depth 1 for the sprite's own, 2 inside L/T.
+    auto write_command = [&warn](QString& out, const sprite& s, const command& cmd, int depth){
+        int end_time = cmd.t1;
+
+        if(cmd.t1 < cmd.t0){
+            // Permanent flip/additive is spelled end = start; for anything
+            // else, an end before the start is a mistake.
+            if(!is_parameter(cmd.type)){
+                warn(s, QString("a %1 command ends (%2 ms) before it starts (%3 ms); "
+                                "exported as instant").arg(command_code(cmd.type))
+                            .arg(cmd.t1).arg(cmd.t0));
+            }
+
+            end_time = cmd.t0;
+        }
+
+        const int easing = is_parameter(cmd.type) ? 0 : int(cmd.easing);
+
+        out += QString(depth, ' ');
+        out += QString("%1,%2,%3,%4,%5\n").arg(
+                command_code(cmd.type), QString::number(easing),
+                QString::number(cmd.t0), QString::number(end_time),
+                command_values(cmd));
+    };
+
     static constexpr layer_t layer_order[] = {
         layer_t::background, layer_t::fail, layer_t::pass, layer_t::foreground, layer_t::overlay
     };
@@ -162,55 +186,99 @@ QString write_osb(const scene& sc, QList<osb_warning>* warnings){
                                 "without \"..\"; osu! won't find it").arg(s.path));
             }
 
-            if(s.cmds.isEmpty()){
-                warn(s, "has no commands, so osu! never shows it");
+            if(!has_visible_commands(s)){
+                warn(s, s.triggers.isEmpty()
+                        ? QString("has no commands, so osu! never shows it")
+                        : QString("only has trigger commands, so osu! never shows it; "
+                                  "give it a command outside the trigger (e.g. a fade to 0)"));
             }
 
-            out += QString("Sprite,%1,%2,\"%3\",%4,%5\n").arg(
-                    osb_layer_name(s.layer), osb_origin_name(s.origin), path,
-                    osb_number(s.x), osb_number(s.y));
+            if(s.is_animation()){
+                // osu!lazer puts the frame number before *every* dot of
+                // the path, so only one dot works the same everywhere.
+                if(path.count('.') != 1){
+                    warn(s, QString("animation path \"%1\" should contain exactly one dot (before the "
+                                    "extension), or osu! looks for other frame file names").arg(path));
+                }
 
-            QSet<QString> unknown_easings;      // warn once per sprite and name
+                out += QString("Animation,%1,%2,\"%3\",%4,%5,%6,%7,%8\n").arg(
+                        osb_layer_name(s.layer), osb_origin_name(s.origin), path,
+                        osb_number(s.x), osb_number(s.y),
+                        QString::number(s.frame_count), osb_number(s.frame_delay),
+                        s.loop_type == animation_loop_t::loop_once ? QStringLiteral("LoopOnce")
+                                                                   : QStringLiteral("LoopForever"));
+            }
+            else{
+                out += QString("Sprite,%1,%2,\"%3\",%4,%5\n").arg(
+                        osb_layer_name(s.layer), osb_origin_name(s.origin), path,
+                        osb_number(s.x), osb_number(s.y));
+            }
 
             for(const command& cmd : s.cmds){
-                int easing = 0;
+                write_command(out, s, cmd, 1);
+            }
 
-                if(!is_parameter(cmd.type)){
-                    easing = osu_easing_number(cmd.easing);
-
-                    if(easing < 0){
-                        if(!unknown_easings.contains(cmd.easing)){
-                            unknown_easings.insert(cmd.easing);
-                            warn(s, QString("unknown easing \"%1\", exported as Linear").arg(cmd.easing));
-                        }
-
-                        easing = 0;
-                    }
+            for(const loop_group& loop : s.loops){
+                if(loop.cmds.isEmpty()){
+                    warn(s, QString("the loop at %1 ms has no commands; left out").arg(loop.start));
+                    continue;
                 }
 
-                int end_time = cmd.t1;
+                out += QString(" L,%1,%2\n").arg(QString::number(loop.start), QString::number(loop_passes(loop)));
 
-                if(cmd.t1 < cmd.t0){
-                    // Permanent flip/additive is spelled end = start; for
-                    // anything else, an end before the start is a mistake.
-                    if(!is_parameter(cmd.type)){
-                        warn(s, QString("a %1 command ends (%2 ms) before it starts (%3 ms); "
-                                        "exported as instant").arg(command_code(cmd.type))
-                                    .arg(cmd.t1).arg(cmd.t0));
-                    }
+                for(const command& cmd : loop.cmds){
+                    write_command(out, s, cmd, 2);
+                }
+            }
 
-                    end_time = cmd.t0;
+            for(const trigger_group& trigger : s.triggers){
+                if(trigger.cmds.isEmpty()){
+                    warn(s, QString("the %1 trigger has no commands; left out").arg(trigger.trigger));
+                    continue;
                 }
 
-                out += QString(" %1,%2,%3,%4,%5\n").arg(
-                        command_code(cmd.type), QString::number(easing),
-                        QString::number(cmd.t0), QString::number(end_time),
-                        command_values(cmd));
+                out += QString(" T,%1,%2,%3").arg(trigger.trigger, QString::number(trigger.start),
+                                                  QString::number(trigger.end));
+
+                if(trigger.group != 0){
+                    out += ',' + QString::number(trigger.group);
+                }
+
+                out += '\n';
+
+                for(const command& cmd : trigger.cmds){
+                    write_command(out, s, cmd, 2);
+                }
             }
         }
     }
 
     out += "//Storyboard Sound Samples\n";
 
+    for(const sample& smp : sc.samples){
+        const QString path = normalize_asset_path(smp.path);
+
+        if(!is_safe_asset_path(path) && warnings){
+            warnings->append({QString("%1: sound path must be relative to the beatmap folder, "
+                                      "without \"..\"; osu! won't find it").arg(smp.path), smp.source_line});
+        }
+
+        out += QString("Sample,%1,%2,\"%3\",%4\n").arg(
+                QString::number(smp.time), QString::number(osb_sample_layer_number(smp.layer)),
+                path, QString::number(std::clamp(smp.volume, 0, 100)));
+    }
+
     return out;
+}
+
+int osb_sample_layer_number(layer_t layer){
+    switch(layer){
+        case layer_t::background: return 0;
+        case layer_t::fail:       return 1;
+        case layer_t::pass:       return 2;
+        case layer_t::foreground:
+        case layer_t::overlay:    return 3;
+    }
+
+    return 3;
 }

@@ -1,6 +1,7 @@
 #include "ui/preview_widget.h"
 #include "core/scene.h"
 #include "core/scene_player.h"
+#include "core/sprite_timing.h"
 #include "project/asset_paths.h"
 
 #include <QPainter>
@@ -130,6 +131,13 @@ void PreviewWidget::paintEvent(QPaintEvent*){
     const double right = left + playfield_width * scale;
     p.drawLine(QPointF(left, screen.top()), QPointF(left, screen.bottom()));
     p.drawLine(QPointF(right, screen.top()), QPointF(right, screen.bottom()));
+
+    if(m_asset_folders.isEmpty() && !m_scene.sprites.isEmpty()){
+        p.setClipping(false);
+        p.setPen(QColor(255, 0, 255));
+        p.drawText(screen.adjusted(8, 0, -8, -6), Qt::AlignBottom | Qt::AlignLeft,
+                tr("No project open: images can't be loaded"));
+    }
 }
 
 void PreviewWidget::set_layer_visible(layer_t layer, bool visible){
@@ -152,12 +160,16 @@ void PreviewWidget::load_pixmaps(){
     }
 
     for(const auto& s : m_scene.sprites){
-        if(s.path.isEmpty() || m_pixmap_cache.contains(s.path)){
-            continue;
-        }
+        // Keyed by the path as the script wrote it (each frame's, for
+        // animations); draw_sprite() looks them up the same way.
+        for(const QString& path : image_paths(s)){
+            if(path.isEmpty() || m_pixmap_cache.contains(path)){
+                continue;
+            }
 
-        // Missing images stay null and are drawn as a placeholder box.
-        m_pixmap_cache.insert(s.path, QPixmap(find_asset(m_asset_folders, s.path)));
+            // Missing images stay null and are drawn as a placeholder.
+            m_pixmap_cache.insert(path, QPixmap(find_asset(m_asset_folders, path)));
+        }
     }
 }
 
