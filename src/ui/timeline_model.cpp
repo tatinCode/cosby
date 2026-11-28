@@ -4,6 +4,7 @@
 #include <QFileInfo>
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
 
 namespace {
@@ -97,11 +98,17 @@ QString timeline_model::command_name(cmd_t type){
 
 void timeline_model::set_scene(const scene& sc){
     m_scene = sc;   // implicitly shared: cheap, and immune to the next run
+
+    QVector<qsizetype> all(m_scene.sprites.size());
+    std::iota(all.begin(), all.end(), qsizetype(0));
+    m_activity = merged_lifetimes(m_scene, all);
+
     rebuild();
 }
 
 void timeline_model::clear(){
     m_scene = scene{};
+    m_activity.clear();
     rebuild();
 }
 

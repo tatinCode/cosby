@@ -82,6 +82,10 @@ class timeline_model {
         int time_begin() const { return m_time_begin; }
         int time_end() const { return m_time_end; }
 
+        // When any sprite is on screen, as few non-overlapping bars as
+        // possible (the compact timeline's band).
+        const QVector<timeline_bar>& activity() const { return m_activity; }
+
         // Kept per key, so it survives set_scene() with a re-run script.
         void toggle_expanded(int row);
         void set_expanded(const QString& key, bool expanded);
@@ -95,6 +99,7 @@ class timeline_model {
         scene m_scene;
         QVector<timeline_row> m_rows;
         QHash<QString, bool> m_expanded;
+        QVector<timeline_bar> m_activity;
 
         int m_time_begin = 1;
         int m_time_end = 0;

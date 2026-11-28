@@ -4,6 +4,8 @@
 #include "core/sprite_timing.h"
 #include "core/time_format.h"
 
+#include <QAction>
+#include <QApplication>
 #include <QClipboard>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -16,6 +18,7 @@
 #include <QPainterPath>
 #include <QScrollBar>
 #include <QShortcut>
+#include <QToolButton>
 #include <QTimer>
 #include <QToolTip>
 #include <QWheelEvent>
@@ -29,10 +32,14 @@ namespace {
     constexpr double min_zoom = 0.002;  // px per ms: ~10 minutes in 1200 px
     constexpr double max_zoom = 5.0;
 
+    // The footer's left part: the time, then the compact button.
+    constexpr int compact_button_width = 22;
+    constexpr int time_area_width = 220 - compact_button_width - 4;
+
     const QColor background_color(28, 28, 28);
     const QColor header_color(33, 33, 35);
     const QColor layer_row_color(38, 38, 42);
-    const QColor ruler_color(36, 36, 36);
+    const QColor footer_color(36, 36, 36);
     const QColor selection_color(14, 99, 156, 90);
     const QColor text_color(212, 212, 212);
     const QColor dim_text_color(128, 128, 136);
@@ -205,7 +212,6 @@ namespace {
 TimelineView::TimelineView(QWidget* parent):
     QWidget(parent),
     m_pixels_per_ms(0.2),
-    m_view_start_ms(0),
     m_playhead_ms(0),
     m_bpm(180.0),
     m_subdivision(4)    //1/4 by default
@@ -243,6 +249,43 @@ TimelineView::TimelineView(QWidget* parent):
     auto* go_to_time = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_G), this);
     go_to_time->setContext(Qt::WidgetWithChildrenShortcut);
     connect(go_to_time, &QShortcut::activated, this, &TimelineView::open_time_field);
+
+    //footer, next to the time: compact <-> detailed
+    m_compact_action = new QAction(tr("Compact Timeline"), this);
+    m_compact_action->setCheckable(true);
+    connect(m_compact_action, &QAction::toggled, this, &TimelineView::setCompact);
+
+    m_compact_button = new QToolButton(this);
+    m_compact_button->setObjectName("timeline_compact");
+    m_compact_button->setAutoRaise(true);
+    m_compact_button->setFocusPolicy(Qt::NoFocus);
+    connect(m_compact_button, &QToolButton::clicked, m_compact_action, &QAction::toggle);
+
+    auto update_button = [this]{
+        // The arrow points where the panel goes: down to shrink, up to grow.
+        m_compact_button->setArrowType(m_compact ? Qt::UpArrow : Qt::DownArrow);
+        m_compact_button->setToolTip(m_compact
+                ? tr("Detailed timeline: show layers, sprites and commands")
+                : tr("Compact timeline: only beats, samples and when sprites are on screen"));
+    };
+    update_button();
+    connect(this, &TimelineView::compactChanged, this, update_button);
+}
+
+void TimelineView::setCompact(bool compact){
+    if(compact == m_compact){
+        return;
+    }
+
+    end_drag();
+    m_compact = compact;
+    m_compact_action->setChecked(compact);      // back here, but equal by now
+
+    update_scrollbar();
+    updateGeometry();
+    update();
+
+    emit compactChanged(compact);
 }
 
 void TimelineView::setBpm(double bpm){
@@ -301,13 +344,12 @@ void TimelineView::fitToScene(){
         return;
     }
 
+    // The zoom that fits the whole storyboard across the tracks; the view
+    // still follows the playhead.
     const double span = std::max(1000.0, double(m_model.time_end() - m_model.time_begin()));
     const double margin = span * 0.03;
 
     m_pixels_per_ms = std::clamp(tracks.width() / (span + 2 * margin), min_zoom, max_zoom);
-    m_view_start_ms = m_model.time_begin() - margin;
-
-    clamp_view();
     update();
 }
 
@@ -325,13 +367,18 @@ void TimelineView::showAllLayers(){
 QRect TimelineView::track_rect() const{
     const int bar_width = m_vbar->isVisible() ? m_vbar->width() : 0;
 
-    return QRect(header_width, ruler_height,
-            std::max(0, width() - header_width - bar_width),
-            std::max(0, height() - ruler_height - footer_height));
+    return QRect(header_w(), 0,
+            std::max(0, width() - header_w() - bar_width),
+            std::max(0, height() - footer_height));
+}
+
+double TimelineView::center_x() const{
+    const QRect tracks = track_rect();
+    return tracks.left() + tracks.width() / 2.0;
 }
 
 QRect TimelineView::footer_rect() const{
-    return QRect(0, std::max(ruler_height, height() - footer_height), width(), footer_height);
+    return QRect(0, std::max(0, height() - footer_height), width(), footer_height);
 }
 
 QRect TimelineView::timeLabelRect() const{
@@ -339,13 +386,13 @@ QRect TimelineView::timeLabelRect() const{
     const QFontMetrics metrics(m_time_edit->font());
     const int text_width = metrics.horizontalAdvance(format_osu_timestamp(m_playhead_ms));
 
-    // Tucked into the bottom-left corner; the box opens in the same spot,
-    // so the text doesn't jump.
+    // Tucked into the bottom-left corner, left of the compact button; the
+    // box opens in the same spot, so the text doesn't jump.
     constexpr int margin = 1;
     constexpr int box_height = 20;
 
     return QRect(margin, footer.bottom() - box_height,
-            std::min(header_width - 2 * margin, text_width + 16), box_height);
+            std::min(time_area_width - 2 * margin, text_width + 16), box_height);
 }
 
 int TimelineView::content_height() const{
@@ -353,15 +400,15 @@ int TimelineView::content_height() const{
 }
 
 int TimelineView::row_top(int row) const{
-    return ruler_height + row * row_height - m_scroll_y;
+    return row * row_height - m_scroll_y;
 }
 
 int TimelineView::row_at(int y) const{
-    if(y < ruler_height || y >= footer_rect().top()){
+    if(m_compact || y < 0 || y >= footer_rect().top()){
         return -1;
     }
 
-    const int row = (y - ruler_height + m_scroll_y) / row_height;
+    const int row = (y + m_scroll_y) / row_height;
     return row < m_model.rows().size() ? row : -1;
 }
 
@@ -374,19 +421,19 @@ QRect TimelineView::eye_rect(int row) const{
 }
 
 double TimelineView::x_for_ms(double ms) const{
-    return header_width + (ms - m_view_start_ms) * m_pixels_per_ms;
+    return center_x() + (ms - double(m_playhead_ms)) * m_pixels_per_ms;
 }
 
 double TimelineView::ms_for_x(double x) const{
-    return m_view_start_ms + (x - header_width) / m_pixels_per_ms;
+    return double(m_playhead_ms) + (x - center_x()) / m_pixels_per_ms;
 }
 
 void TimelineView::update_scrollbar(){
     const int visible = track_rect().height();
-    const int overflow = content_height() - visible;
+    const int overflow = m_compact ? 0 : content_height() - visible;
 
     m_vbar->setVisible(overflow > 0);
-    m_vbar->setGeometry(width() - m_vbar->sizeHint().width(), ruler_height,
+    m_vbar->setGeometry(width() - m_vbar->sizeHint().width(), 0,
             m_vbar->sizeHint().width(), visible);
     m_vbar->setPageStep(std::max(row_height, visible));
     m_vbar->setRange(0, std::max(0, overflow));
@@ -395,21 +442,15 @@ void TimelineView::update_scrollbar(){
     m_scroll_y = m_vbar->value();
 }
 
-void TimelineView::clamp_view(){
-    // Storyboards may start before 0 ms (lead-in); allow that plus a margin.
-    const bool has_range = m_model.time_begin() <= m_model.time_end();
-    const double begin = has_range ? std::min(0, m_model.time_begin()) : 0;
-    const double earliest = begin - 1000.0;
-
-    m_view_start_ms = std::max(m_view_start_ms, earliest);
-}
-
 void TimelineView::resizeEvent(QResizeEvent*){
     update_scrollbar();
 
     // Same corner as the text, but wide enough to type in.
     const QRect label = timeLabelRect();
-    m_time_edit->setGeometry(label.left(), label.top(), header_width - 2 * label.left(), label.height());
+    m_time_edit->setGeometry(label.left(), label.top(), time_area_width - 2 * label.left(), label.height());
+
+    const QRect footer = footer_rect();
+    m_compact_button->setGeometry(time_area_width, footer.top() + 2, compact_button_width, footer.height() - 4);
 }
 
 qint64 TimelineView::snapMs(qint64 t) const{
@@ -432,55 +473,57 @@ void TimelineView::paintEvent(QPaintEvent*){
 
     const QRect tracks = track_rect();
 
-    // Beat grid behind the rows.
     p.save();
     p.setClipRect(tracks);
-    paint_grid(p, tracks, false);
+    if(m_compact){
+        paint_compact(p, tracks);
+    }
+    else{
+        paint_grid(p, tracks, false);   // behind the rows
+    }
     p.restore();
 
-    paint_rows(p);
-
-    // Ruler on top, above the tracks.
-    const QRect ruler(header_width, 0, tracks.width(), ruler_height);
-    p.fillRect(ruler, ruler_color);
-    p.save();
-    p.setClipRect(ruler);
-    paint_grid(p, ruler, true);
-    p.restore();
-
-    // Corner above the header.
-    p.fillRect(QRect(0, 0, header_width, ruler_height), ruler_color);
+    if(!m_compact){
+        paint_rows(p);
+    }
 
     paint_footer(p);
 
     const int footer_top = footer_rect().top();
-    p.setPen(separator_color);
-    p.drawLine(header_width, 0, header_width, footer_top);
-    p.drawLine(0, ruler_height, width(), ruler_height);
 
-    // Playhead across ruler and tracks.
-    const double px = x_for_ms(double(m_playhead_ms));
-    if(px >= header_width && px <= tracks.right()){
-        p.setRenderHint(QPainter::Antialiasing);
-        p.setPen(QPen(playhead_color, 2));
-        p.drawLine(QPointF(px, 0), QPointF(px, footer_top));
-
-        QPainterPath marker;
-        marker.moveTo(px - 6, 0);
-        marker.lineTo(px + 6, 0);
-        marker.lineTo(px, 8);
-        marker.closeSubpath();
-        p.fillPath(marker, playhead_color);
+    if(!m_compact){
+        p.setPen(separator_color);
+        p.drawLine(header_width, 0, header_width, footer_top);
     }
+
+    // The playhead, always in the middle.
+    const double px = center_x();
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(playhead_color, 2));
+    p.drawLine(QPointF(px, 0), QPointF(px, footer_top));
+
+    QPainterPath marker;
+    marker.moveTo(px - 6, 0);
+    marker.lineTo(px + 6, 0);
+    marker.lineTo(px, 8);
+    marker.closeSubpath();
+    p.fillPath(marker, playhead_color);
+    p.setRenderHint(QPainter::Antialiasing, false);
 
     if(m_model.is_empty() && !m_empty_hint.isEmpty()){
         p.setPen(dim_text_color);
-        p.drawText(QRect(10, ruler_height + 6, header_width - 20, tracks.height() - 12),
-                   Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_empty_hint);
+
+        // In the names column; compact has none, so left in the strip.
+        const QRect box = m_compact
+            ? QRect(10, 0, std::max(0, int(px) - 20), footer_top)
+            : QRect(10, 6, header_width - 20, std::max(0, footer_top - 12));
+        const int align = m_compact ? Qt::AlignVCenter : Qt::AlignTop;
+
+        p.drawText(box, Qt::AlignLeft | align | Qt::TextWordWrap, m_empty_hint);
     }
 }
 
-void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
+void TimelineView::paint_grid(QPainter& p, const QRect& area, bool strip){
     const double beat = beat_ms();
     const double beat_px = beat * m_pixels_per_ms;
 
@@ -500,14 +543,14 @@ void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
         }
     }
 
-    // In the ruler a finer division is shorter; behind the rows it's fainter.
+    // In the strip a finer division is shorter; behind the rows it's fainter.
     auto tick_height = [](int division){
         return division == 2 ? 9 : division <= 4 ? 7 : 5;
     };
 
-    auto pen_for = [ruler](int division, int alpha){
+    auto pen_for = [strip](int division, int alpha){
         QColor color = beat_division_color(division);
-        if(!ruler){
+        if(!strip){
             color.setAlpha(alpha);
         }
         return QPen(color);
@@ -524,10 +567,10 @@ void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
                 continue;   // drawn as a beat line
             }
 
-            p.setPen(pen_for(division, 40));
+            p.setPen(pen_for(division, 55));
 
             const double x = x_for_ms(m_beat_offset_ms + k * step);
-            if(ruler){
+            if(strip){
                 p.drawLine(QPointF(x, area.bottom() - tick_height(division)), QPointF(x, area.bottom()));
             }
             else{
@@ -552,9 +595,9 @@ void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
         const double x = x_for_ms(m_beat_offset_ms + k * beat);
         const bool measure = k % 4 == 0;
 
-        p.setPen(pen_for(1, measure ? 75 : 45));
+        p.setPen(pen_for(1, measure ? 100 : 60));
 
-        if(ruler){
+        if(strip){
             p.drawLine(QPointF(x, area.bottom() - (measure ? 16 : 11)), QPointF(x, area.bottom()));
         }
         else{
@@ -563,11 +606,52 @@ void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
     }
 }
 
+void TimelineView::paint_compact(QPainter& p, const QRect& area){
+    // Top to bottom: when sprites are on screen, samples, beat ticks.
+    paint_grid(p, area, true);
+
+    const double view_t0 = ms_for_x(area.left());
+    const double view_t1 = ms_for_x(area.right());
+
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(layer_color(layer_t::foreground));
+
+    for(const timeline_bar& bar : m_model.activity()){
+        if(bar.t0 > view_t1 || bar.t1 < view_t0){
+            continue;
+        }
+
+        const double x0 = x_for_ms(bar.t0);
+        const double x1 = std::max(x_for_ms(bar.t1), x0 + 2.0);
+        p.drawRoundedRect(QRectF(x0, area.top() + 6, x1 - x0, 6), 2, 2);
+    }
+
+    const double cy = area.top() + 21;
+
+    for(const sample& smp : m_model.current_scene().samples){
+        if(smp.time < view_t0 - 10 || smp.time > view_t1 + 10){
+            continue;
+        }
+
+        const double x = x_for_ms(smp.time);
+        QPainterPath diamond;
+        diamond.moveTo(x, cy - 4);
+        diamond.lineTo(x + 4, cy);
+        diamond.lineTo(x, cy + 4);
+        diamond.lineTo(x - 4, cy);
+        diamond.closeSubpath();
+        p.fillPath(diamond, sample_color);
+    }
+
+    p.setRenderHint(QPainter::Antialiasing, false);
+}
+
 void TimelineView::paint_rows(QPainter& p){
     const auto& rows = m_model.rows();
     const QRect tracks = track_rect();
 
-    p.fillRect(QRect(0, ruler_height, header_width, tracks.height()), header_color);
+    p.fillRect(QRect(0, 0, header_width, tracks.height()), header_color);
 
     if(rows.isEmpty()){
         return;
@@ -653,7 +737,7 @@ void TimelineView::paint_header(QPainter& p, int index, const QRect& rect){
 void TimelineView::paint_footer(QPainter& p){
     const QRect footer = footer_rect();
 
-    p.fillRect(footer, ruler_color);
+    p.fillRect(footer, footer_color);
     p.setPen(separator_color);
     p.drawLine(footer.topLeft(), footer.topRight());
 
@@ -760,7 +844,7 @@ void TimelineView::paint_bars(QPainter& p, const timeline_row& row, const QRect&
  * hit testing and tooltips
  */
 int TimelineView::bar_at(int index, const QPoint& pos) const{
-    if(index < 0 || pos.x() < header_width){
+    if(index < 0 || pos.x() < header_w()){
         return -1;
     }
 
@@ -903,9 +987,8 @@ QString TimelineView::tooltip_for(int index, int bar_index) const{
 bool TimelineView::event(QEvent* e){
     // The mouse can be taken away mid-drag (a popup, the window losing it):
     // the drag ends there, or playback would stay quiet.
-    if(e->type() == QEvent::UngrabMouse && m_drag == drag_mode::seek){
-        m_drag = drag_mode::none;
-        emit scrubFinished();
+    if(e->type() == QEvent::UngrabMouse){
+        end_drag();
     }
 
     if(e->type() == QEvent::ToolTip){
@@ -951,6 +1034,23 @@ void TimelineView::seek_to_x(double x, bool snap){
     emit requestSeek(snap ? snapMs(t) : t);
 }
 
+void TimelineView::slide_to(const QPoint& pos){
+    // From where the press began, not the playhead now: the view moves with
+    // each seek, and the time under the mouse has to stay put.
+    const double moved_ms = (pos.x() - m_press_pos.x()) / m_pixels_per_ms;
+    emit requestSeek(qint64(std::llround(double(m_press_ms) - moved_ms)));
+}
+
+void TimelineView::end_drag(){
+    const bool was_sliding = m_drag == drag_mode::slide;
+    m_drag = drag_mode::none;
+
+    if(was_sliding){
+        unsetCursor();
+        emit scrubFinished();
+    }
+}
+
 bool TimelineView::is_layer_visible(layer_t layer) const{
     return !(m_hidden_layers & (1u << unsigned(layer)));
 }
@@ -964,31 +1064,25 @@ void TimelineView::toggle_layer(layer_t layer){
 void TimelineView::wheelEvent(QWheelEvent* e){
     const QPoint delta = e->angleDelta();
 
-    //ctrl + wheel = zoom at the cursor
+    //ctrl + wheel = zoom around the playhead
     if(e->modifiers() & Qt::ControlModifier){
         const double steps = (delta.y() != 0 ? delta.y() : delta.x()) / 120.0;
-        const double x = std::max<double>(header_width, e->position().x());
-        const double t_at_cursor = ms_for_x(x);
 
         m_pixels_per_ms = std::clamp(m_pixels_per_ms * std::pow(1.15, steps), min_zoom, max_zoom);
-
-        //keep the time under the cursor in place
-        m_view_start_ms = t_at_cursor - (x - header_width) / m_pixels_per_ms;
-        clamp_view();
         update();
         e->accept();
         return;
     }
 
-    //shift + wheel (or a horizontal wheel/touchpad swipe) = pan time.
-    //Some platforms already turn shift+wheel into a horizontal delta.
-    const bool horizontal = (e->modifiers() & Qt::ShiftModifier) || (delta.x() != 0 && delta.y() == 0);
+    //shift + wheel (or a horizontal wheel/touchpad swipe) = move through time,
+    //which is seeking since the view follows the playhead. Some platforms
+    //already turn shift+wheel into a horizontal delta.
+    //In compact mode there are no rows to scroll, so the plain wheel does it.
+    const bool horizontal = m_compact || (e->modifiers() & Qt::ShiftModifier) || (delta.x() != 0 && delta.y() == 0);
 
     if(horizontal){
         const int amount = delta.x() != 0 ? delta.x() : delta.y();
-        m_view_start_ms -= amount / m_pixels_per_ms * 0.5;
-        clamp_view();
-        update();
+        emit requestSeek(qint64(std::llround(double(m_playhead_ms) - amount / m_pixels_per_ms * 0.5)));
         e->accept();
         return;
     }
@@ -1013,9 +1107,19 @@ void TimelineView::mousePressEvent(QMouseEvent* e){
         return;
     }
 
+    if(m_drag != drag_mode::none){
+        return;     // a second button during a drag
+    }
+
+    m_press_pos = pos;
+    m_press_ms = m_playhead_ms;
+    m_press_snap = !(e->modifiers() & Qt::AltModifier);
+
+    //right/middle: slide at once (and scroll rows)
     if(e->button() == Qt::RightButton || e->button() == Qt::MiddleButton){
-        m_drag = drag_mode::pan;
+        m_drag = drag_mode::slide;
         setCursor(Qt::ClosedHandCursor);
+        emit scrubStarted();
         return;
     }
 
@@ -1023,10 +1127,8 @@ void TimelineView::mousePressEvent(QMouseEvent* e){
         return;
     }
 
-    const bool snap = !(e->modifiers() & Qt::AltModifier);
-
     //header: expand arrow, layer eye, or select
-    if(pos.x() < header_width){
+    if(pos.x() < header_w()){
         const int index = row_at(pos.y());
         if(index < 0){
             return;
@@ -1052,14 +1154,9 @@ void TimelineView::mousePressEvent(QMouseEvent* e){
         return;
     }
 
-    //ruler or tracks: seek (and keep seeking while dragging)
-    if(pos.y() >= ruler_height){
-        set_selected_row(row_at(pos.y()));
-    }
-
-    m_drag = drag_mode::seek;
-    emit scrubStarted();
-    seek_to_x(pos.x(), snap);
+    //tracks: a click seeks there on release; moving first makes it a slide
+    set_selected_row(row_at(pos.y()));
+    m_drag = drag_mode::press;
 }
 
 void TimelineView::mouseMoveEvent(QMouseEvent* e){
@@ -1074,36 +1171,32 @@ void TimelineView::mouseMoveEvent(QMouseEvent* e){
         }
     }
 
-    if(m_drag == drag_mode::pan){
-        const QPoint delta = pos - m_last_drag_pos;
-
-        m_view_start_ms -= delta.x() / m_pixels_per_ms;
-        clamp_view();
-
-        if(m_vbar->isVisible()){
-            m_vbar->setValue(m_vbar->value() - delta.y());
-        }
-
-        update();
+    if(m_drag == drag_mode::press && (pos - m_press_pos).manhattanLength() >= QApplication::startDragDistance()){
+        m_drag = drag_mode::slide;
+        setCursor(Qt::ClosedHandCursor);
+        emit scrubStarted();
     }
-    else if(m_drag == drag_mode::seek){
-        seek_to_x(std::max<double>(header_width, pos.x()), !(e->modifiers() & Qt::AltModifier));
+
+    if(m_drag == drag_mode::slide){
+        slide_to(pos);
+
+        // A right-drag also scrolls the rows.
+        if((e->buttons() & (Qt::RightButton | Qt::MiddleButton)) && m_vbar->isVisible()){
+            m_vbar->setValue(m_vbar->value() - (pos.y() - m_last_drag_pos.y()));
+        }
     }
 
     m_last_drag_pos = pos;
 }
 
-void TimelineView::mouseReleaseEvent(QMouseEvent*){
-    if(m_drag == drag_mode::pan){
-        unsetCursor();
+void TimelineView::mouseReleaseEvent(QMouseEvent* e){
+    if(m_drag == drag_mode::press && e->button() == Qt::LeftButton){
+        m_drag = drag_mode::none;
+        seek_to_x(m_press_pos.x(), m_press_snap);
+        return;
     }
 
-    const bool was_seeking = m_drag == drag_mode::seek;
-    m_drag = drag_mode::none;
-
-    if(was_seeking){
-        emit scrubFinished();
-    }
+    end_drag();
 }
 
 void TimelineView::mouseDoubleClickEvent(QMouseEvent* e){

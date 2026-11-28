@@ -239,6 +239,8 @@ MainWindow::MainWindow(QWidget* parent):
     m_actions->menu_view->addAction(m_dock_code->toggleViewAction());
     m_actions->menu_view->addAction(m_dock_timeline->toggleViewAction());
     m_actions->menu_view->addAction(m_dock_output->toggleViewAction());
+    m_actions->menu_view->addSeparator();
+    m_actions->menu_view->addAction(m_timeline->compactAction());
     rebuild_recent_menu();
 
     restore_window_layout();
@@ -960,6 +962,11 @@ void MainWindow::on_clear_recent_projects(){
     rebuild_recent_menu();
 }
 
+namespace {
+    const QString timeline_compact_key = QStringLiteral("timeline/compact");
+    const QString timeline_detailed_height_key = QStringLiteral("timeline/detailed_height");
+}
+
 void MainWindow::restore_window_layout(){
     QSettings settings;
 
@@ -980,7 +987,29 @@ void MainWindow::restore_window_layout(){
                     {size.width() * 3 / 4, size.width() / 4}, Qt::Horizontal);
     }
 
+    // Before the state, so a compact panel's saved height fits its minimum.
+    m_timeline->setCompact(settings.value(timeline_compact_key, false).toBool());
     restoreState(settings.value("window/state").toByteArray());
+
+    // From now on the panel shrinks and grows with the mode; the detailed
+    // height comes back when leaving compact.
+    connect(m_timeline, &TimelineView::compactChanged, this, [this](bool compact){
+        QSettings settings;
+        settings.setValue(timeline_compact_key, compact);
+
+        if(m_dock_timeline->isFloating()){
+            return;
+        }
+
+        if(compact){
+            settings.setValue(timeline_detailed_height_key, m_dock_timeline->height());
+            resizeDocks({m_dock_timeline}, {TimelineView::compact_height}, Qt::Vertical);
+        }
+        else{
+            const int height = settings.value(timeline_detailed_height_key, 260).toInt();
+            resizeDocks({m_dock_timeline}, {std::max(height, m_timeline->minimumSizeHint().height())}, Qt::Vertical);
+        }
+    });
 }
 
 void MainWindow::save_window_layout(){
