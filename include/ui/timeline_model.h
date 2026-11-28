@@ -15,21 +15,28 @@
 //     ▸ star.png ×200   line 12    group: same layer + line + file + name
 //       bg.jpg          line 3     sprite
 //         Fade                     command lane (one per command type)
+//         Loops                    loop lane: one bar per loop, all passes
+//         Triggers                 trigger lane: when each trigger can fire
+//   Samples                        sound samples, one marker each
 //
 // Sprites created by the same script line (a loop, a helper function) are
 // folded into one group. Giving them different `name`s keeps them apart.
 
-enum class timeline_row_kind { layer, group, sprite, command_lane };
+enum class timeline_row_kind { layer, group, sprite, command_lane, loop_lane, trigger_lane, samples };
+
+enum class timeline_bar_kind { lifetime, command, loop, trigger, sample };
 
 struct timeline_bar {
     int t0 = 0;
     int t1 = 0;                 // t1 <= t0: an instant (or "from t0 on")
 
-    qsizetype sprite = -1;      // scene index; -1 for merged spans
-    qsizetype command = -1;     // index in sprite.cmds; -1 for lifetimes
-    cmd_t type = cmd_t::fade;   // valid when command >= 0
+    timeline_bar_kind kind = timeline_bar_kind::lifetime;
+    qsizetype sprite = -1;      // scene index; -1 for merged spans and samples
+    qsizetype command = -1;     // index in sprite.cmds (commands), sprite.loops,
+                                // sprite.triggers or scene.samples
+    cmd_t type = cmd_t::fade;   // commands only
 
-    bool is_command() const { return command >= 0; }
+    bool is_command() const { return kind == timeline_bar_kind::command; }
 };
 
 struct timeline_row {
@@ -68,9 +75,10 @@ class timeline_model {
 
         const scene& current_scene() const { return m_scene; }
         const QVector<timeline_row>& rows() const { return m_rows; }
-        bool is_empty() const { return m_scene.sprites.isEmpty(); }
+        bool is_empty() const { return m_scene.sprites.isEmpty() && m_scene.samples.isEmpty(); }
 
-        // Time covered by all commands; begin > end when there are none.
+        // Time covered by all commands (loops included) and samples; begin >
+        // end when there are none.
         int time_begin() const { return m_time_begin; }
         int time_end() const { return m_time_end; }
 

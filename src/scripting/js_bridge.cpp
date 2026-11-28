@@ -1,5 +1,7 @@
 #include "scripting/js_bridge.h"
 
+#include <cmath>
+
 js_bridge::js_bridge(QJSEngine *eng, scene *sc, QObject *parent)
     : QObject(parent), eng_(eng), sc_(sc) {}
 
@@ -144,4 +146,78 @@ QObject *js_bridge::sprite(const QString &path, const QJSValue &opts, int source
     }
 
     return proxy;
+}
+
+QObject *js_bridge::animation(const QString &path, const QJSValue &opts, int source_line) {
+    const QJSValue count = opts.property("frameCount");
+    const QJSValue delay = opts.property("frameDelay");
+
+    if (!count.isNumber() || count.toNumber() < 1 || count.toNumber() != std::floor(count.toNumber())) {
+        eng_->throwError(QJSValue::RangeError,
+                         QStringLiteral("animation(path, options): options.frameCount must be a whole number of frames, at least 1"));
+        return nullptr;
+    }
+
+    if (!delay.isNumber() || !(delay.toNumber() > 0)) {
+        eng_->throwError(QJSValue::RangeError,
+                         QStringLiteral("animation(path, options): options.frameDelay must be the milliseconds per frame, above 0"));
+        return nullptr;
+    }
+
+    animation_loop_t loop_type = animation_loop_t::loop_forever;
+
+    if (opts.hasProperty("loopType")) {
+        const QString text = opts.property("loopType").toString();
+
+        if (text.compare("LoopOnce", Qt::CaseInsensitive) == 0) {
+            loop_type = animation_loop_t::loop_once;
+        }
+        else if (text.compare("LoopForever", Qt::CaseInsensitive) != 0) {
+            eng_->throwError(QJSValue::TypeError,
+                             QStringLiteral("Unknown loopType \"%1\". Use \"LoopForever\" or \"LoopOnce\"").arg(text));
+            return nullptr;
+        }
+    }
+
+    QObject *proxy = sprite(path, opts, source_line);
+
+    ::sprite &s = sc_->sprites.back();
+    s.frame_count = count.toInt();
+    s.frame_delay = delay.toNumber();
+    s.loop_type = loop_type;
+
+    return proxy;
+}
+
+void js_bridge::sample(int time, const QString &path, const QJSValue &opts, int source_line) {
+    ::sample smp;
+    smp.time = time;
+    smp.path = path;
+    smp.source_line = source_line;
+
+    if (opts.hasProperty("layer")) {
+        const QString layer = opts.property("layer").toString();
+
+        if (layer.compare("Overlay", Qt::CaseInsensitive) == 0) {
+            eng_->throwError(QJSValue::RangeError,
+                             QStringLiteral("Samples can't use the Overlay layer; use Background, Fail, Pass or Foreground"));
+            return;
+        }
+
+        smp.layer = to_layer(layer);
+    }
+
+    if (opts.hasProperty("volume")) {
+        const QJSValue volume = opts.property("volume");
+
+        if (!volume.isNumber() || volume.toNumber() < 0 || volume.toNumber() > 100) {
+            eng_->throwError(QJSValue::RangeError,
+                             QStringLiteral("sample(time, path, options): options.volume must be 0-100"));
+            return;
+        }
+
+        smp.volume = qRound(volume.toNumber());
+    }
+
+    sc_->samples.push_back(smp);
 }

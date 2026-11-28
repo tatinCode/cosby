@@ -13,7 +13,11 @@
  */
 QString osb_file_name(const QString& osu_file_path);
 
-// An image the export copies into the beatmap folder.
+// Every file the storyboard uses, in order, as the script wrote them (may
+// repeat): sprite images, each animation frame, sound samples.
+QStringList used_files(const scene& sc);
+
+// A file (image or sound) the export copies into the beatmap folder.
 struct asset_copy{
     QString path;           // relative, as used by the script ("sb/star.png")
     QString source;         // absolute
@@ -31,7 +35,7 @@ struct export_plan{
 
     QList<asset_copy> copies;
 
-    // Images found nowhere: not in assets/, the beatmap folder or its copy.
+    // Files found nowhere: not in assets/, the beatmap folder or its copy.
     QStringList missing;
 
     // True when anything already in the folder would be overwritten.

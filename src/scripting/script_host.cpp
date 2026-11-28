@@ -1,5 +1,7 @@
 #include "scripting/script_host.h"
 
+#include <QRegularExpression>
+
 #include <QDebug>
 
 script_host::script_host(QObject* parent) : QObject(parent){
@@ -58,12 +60,49 @@ script_host::script_host(QObject* parent) : QObject(parent){
                     },
                     add_sprite: function(path, layer, origin, x, y){
                         return native.add_sprite(path, layer, origin, x, y, caller_line());
+                    },
+                    animation: function(path, options){
+                        return native.animation(path, options === undefined ? {} : options, caller_line());
+                    },
+                    sample: function(time, path, options){
+                        native.sample(time, path, options === undefined ? {} : options, caller_line());
                     }
                 });
             })(__cosby_scene);
             )JS"),
             QStringLiteral("<bootstrap>")   //filename for error stacks
             );
+}
+
+namespace {
+    /**
+     * The line in `file` where the error happened. Errors thrown by the
+     * SceneApi wrapper or the native bridge (a bad option, say) point into
+     * <bootstrap>; the first `file` frame of the stack is the script line
+     * that made the call.
+     */
+    int error_line(const QJSValue& error, const QString& file){
+        const QString encoded = QString(file).replace('<', "%3C").replace('>', "%3E");
+        const QString error_file = error.property("fileName").toString();
+
+        if(error_file.endsWith(file) || error_file.endsWith(encoded)){
+            return error.property("lineNumber").toInt();
+        }
+
+        // Frames look like "name@file:%3Cscript%3E:12".
+        const QRegularExpression frame(QStringLiteral("(?:%1|%2):(\\d+)\\s*$").arg(
+                QRegularExpression::escape(file), QRegularExpression::escape(encoded)));
+
+        for(const QString& line : error.property("stack").toString().split('\n')){
+            const auto match = frame.match(line);
+
+            if(match.hasMatch()){
+                return match.captured(1).toInt();
+            }
+        }
+
+        return error.property("lineNumber").toInt();
+    }
 }
 
 std::optional<script_error> script_host::evaluate(const QString& source, const QString& preload_source){
@@ -73,14 +112,14 @@ std::optional<script_error> script_host::evaluate(const QString& source, const Q
         QJSValue pre = eng_.evaluate(preload_source, "<preload>");
 
         if(pre.isError()){
-            return script_error{pre.toString(), pre.property("lineNumber").toInt(), true};
+            return script_error{pre.toString(), error_line(pre, "<preload>"), true};
         }
     }
 
     QJSValue res = eng_.evaluate(source, "<script>");
 
     if(res.isError()){
-        return script_error{res.toString(), res.property("lineNumber").toInt(), false};
+        return script_error{res.toString(), error_line(res, "<script>"), false};
     }
 
     return std::nullopt;

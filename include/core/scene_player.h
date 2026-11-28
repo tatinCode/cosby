@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/scene.h"
+#include "core/sprite_timing.h"
 
 #include <algorithm>
 #include <cmath>
@@ -9,18 +10,6 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QHash>
-
-inline double ease(const QString& type, double t){
-    if(type == "In"){
-        return t * t;
-    }
-
-    if(type == "Out"){
-        return 1 - (1 - t) * (1 - t);
-    }
-
-    return t; //linear
-}
 
 inline QPointF origin_offset(origin_t origin, double w, double h){
     switch(origin){
@@ -86,32 +75,6 @@ struct sprite_state{
     double b;
 };
 
-// Time span in which the sprite exists (osu!: earliest start to latest end).
-// Parameter commands (flip, additive) with end <= start only count at start.
-struct sprite_lifetime{
-    bool valid = false;     // false when there are no commands
-    int start = 0;
-    int end = 0;
-};
-
-inline sprite_lifetime lifetime_of(const sprite& s){
-    sprite_lifetime life;
-
-    for(const auto& cmd : s.cmds){
-        const int cmd_end = std::max(cmd.t0, cmd.t1);
-
-        if(!life.valid){
-            life = {true, cmd.t0, cmd_end};
-        }
-        else{
-            life.start = std::min(life.start, cmd.t0);
-            life.end = std::max(life.end, cmd_end);
-        }
-    }
-
-    return life;
-}
-
 /**
  * The sprite's state at ms, following osu!'s rules:
  *  - each property is driven by its own commands (move and moveX both
@@ -122,6 +85,9 @@ inline sprite_lifetime lifetime_of(const sprite& s){
  *  - properties without commands keep their defaults (the sprite's
  *    position, opacity 1, scale 1, no rotation, white)
  *  - flip/additive are on from start until end, or for good when end <= start
+ *  - loop commands count once per pass, each pass shifted by its duration
+ *  - trigger commands are ignored (they need gameplay)
+ *  - opacity above 1 wraps around (1.25 shows as 0.25), as in osu!
  */
 inline sprite_state eval_sprite(const sprite& s, int ms){
     sprite_state state{
@@ -141,73 +107,113 @@ inline sprite_state eval_sprite(const sprite& s, int ms){
         .b = 255.0
     };
 
-    const sprite_lifetime life = lifetime_of(s);
+    const time_span life = lifetime_of(s);
     state.visible = life.valid && ms >= life.start && ms <= life.end;
+
+    // A command at its place in time: loop commands are shifted to the
+    // start of a pass.
+    struct placed{
+        const command* cmd = nullptr;
+        int offset = 0;
+
+        int t0() const { return cmd->t0 + offset; }
+        int t1() const { return cmd->t1 + offset; }
+    };
 
     // Per property: the command in charge at ms (latest start <= ms; on a
     // tie the one written later), or else the earliest one.
     enum channel { ch_alpha, ch_x, ch_y, ch_scale, ch_scale_vec, ch_rot, ch_color, channel_count };
-    const command* active[channel_count] = {};
-    const command* first[channel_count] = {};
+    placed active[channel_count] = {};
+    placed first[channel_count] = {};
 
-    auto consider = [ms, &active, &first](channel ch, const command& cmd){
-        if(!first[ch] || cmd.t0 < first[ch]->t0){
-            first[ch] = &cmd;
+    auto consider = [ms, &active, &first](channel ch, placed earliest, placed latest){
+        if(!first[ch].cmd || earliest.t0() < first[ch].t0()){
+            first[ch] = earliest;
         }
 
-        if(cmd.t0 <= ms && (!active[ch] || cmd.t0 >= active[ch]->t0)){
-            active[ch] = &cmd;
+        if(latest.t0() <= ms && (!active[ch].cmd || latest.t0() >= active[ch].t0())){
+            active[ch] = latest;
         }
     };
 
-    auto flag_on = [ms](const command& cmd){
-        return ms >= cmd.t0 && (cmd.t1 <= cmd.t0 || ms < cmd.t1);
+    auto flag_on = [ms](placed c){
+        return ms >= c.t0() && (c.cmd->t1 <= c.cmd->t0 || ms < c.t1());
+    };
+
+    // earliest: its first occurrence; latest: the last one started by ms
+    // (or the first, when none has started yet).
+    auto add = [&](placed earliest, placed latest){
+        switch(earliest.cmd->type){
+            case cmd_t::fade:       consider(ch_alpha, earliest, latest); break;
+            case cmd_t::move:       consider(ch_x, earliest, latest); consider(ch_y, earliest, latest); break;
+            case cmd_t::move_x:     consider(ch_x, earliest, latest); break;
+            case cmd_t::move_y:     consider(ch_y, earliest, latest); break;
+            case cmd_t::scale:      consider(ch_scale, earliest, latest); break;
+            case cmd_t::scale_vec:  consider(ch_scale_vec, earliest, latest); break;
+            case cmd_t::rotate:     consider(ch_rot, earliest, latest); break;
+            case cmd_t::color:      consider(ch_color, earliest, latest); break;
+
+            case cmd_t::flip_h:     state.flip_h = state.flip_h || flag_on(latest); break;
+            case cmd_t::flip_v:     state.flip_v = state.flip_v || flag_on(latest); break;
+            case cmd_t::additive:   state.additive = state.additive || flag_on(latest); break;
+        }
     };
 
     for(const auto& cmd : s.cmds){
-        switch(cmd.type){
-            case cmd_t::fade:       consider(ch_alpha, cmd); break;
-            case cmd_t::move:       consider(ch_x, cmd); consider(ch_y, cmd); break;
-            case cmd_t::move_x:     consider(ch_x, cmd); break;
-            case cmd_t::move_y:     consider(ch_y, cmd); break;
-            case cmd_t::scale:      consider(ch_scale, cmd); break;
-            case cmd_t::scale_vec:  consider(ch_scale_vec, cmd); break;
-            case cmd_t::rotate:     consider(ch_rot, cmd); break;
-            case cmd_t::color:      consider(ch_color, cmd); break;
+        add({&cmd, 0}, {&cmd, 0});
+    }
 
-            case cmd_t::flip_h:     state.flip_h = state.flip_h || flag_on(cmd); break;
-            case cmd_t::flip_v:     state.flip_v = state.flip_v || flag_on(cmd); break;
-            case cmd_t::additive:   state.additive = state.additive || flag_on(cmd); break;
+    for(const auto& loop : s.loops){
+        const int pass_length = timing_of(loop).duration();
+        const int last_pass = loop_passes(loop) - 1;
+
+        for(const auto& cmd : loop.cmds){
+            const placed earliest{&cmd, loop.start};
+            int pass = 0;
+
+            if(ms >= earliest.t0()){
+                pass = pass_length > 0
+                    ? int(std::min<qint64>(last_pass, (qint64(ms) - earliest.t0()) / pass_length))
+                    : last_pass;
+            }
+
+            add(earliest, {&cmd, loop.start + pass * pass_length});
         }
     }
 
     // Eased progress of a command at ms (0 before it starts, 1 after it ends).
-    auto progress = [ms](const command& cmd){
-        if(ms < cmd.t0){
+    auto progress = [ms](placed c){
+        if(ms < c.t0()){
             return 0.0;
         }
 
-        const double t = (cmd.t1 <= cmd.t0)
+        const double t = (c.t1() <= c.t0())
             ? 1.0
-            : std::clamp((ms - cmd.t0) / double(cmd.t1 - cmd.t0), 0.0, 1.0);
+            : std::clamp((ms - c.t0()) / double(c.t1() - c.t0()), 0.0, 1.0);
 
-        return ease(cmd.easing, t);
+        return apply_easing(c.cmd->easing, t);
     };
 
     auto lerp = [](double a, double b, double t){ return a + (b - a) * t; };
 
     for(int ch = 0; ch < channel_count; ++ch){
-        const command* cmd = active[ch] ? active[ch] : first[ch];
+        const placed c = active[ch].cmd ? active[ch] : first[ch];
 
-        if(!cmd){
+        if(!c.cmd){
             continue;
         }
 
-        const double t = progress(*cmd);
+        const command* cmd = c.cmd;
+        const double t = progress(c);
 
         switch(ch){
             case ch_alpha:
                 state.alpha = lerp(cmd->v0, cmd->v1, t);
+
+                // osu! wraps opacity above 1; storyboards use it for flicker.
+                if(state.alpha > 1.0){
+                    state.alpha = std::fmod(state.alpha, 1.0);
+                }
                 break;
 
             case ch_x:
@@ -273,7 +279,7 @@ inline void draw_sprite(QPainter& p, const sprite& s, int ms, const QHash<QStrin
     }
 
     p.save();
-    p.setOpacity(std::min(state.alpha, 1.0));
+    p.setOpacity(state.alpha);
     p.setCompositionMode(state.additive ? QPainter::CompositionMode_Plus
                                         : QPainter::CompositionMode_SourceOver);
 
@@ -281,7 +287,7 @@ inline void draw_sprite(QPainter& p, const sprite& s, int ms, const QHash<QStrin
     double width = 32.0;
     double height = 32.0;
 
-    auto it = pixmaps.find(s.path);
+    auto it = pixmaps.find(s.is_animation() ? frame_path(s.path, animation_frame(s, ms)) : s.path);
     if(it != pixmaps.end() && !it->isNull()){
         pix = &it.value();
         width = pix->width();
@@ -297,6 +303,9 @@ inline void draw_sprite(QPainter& p, const sprite& s, int ms, const QHash<QStrin
     p.rotate(state.rot * 180.0 / M_PI);
     p.scale(state.scale * state.scale_x, state.scale * state.scale_y);
     p.translate(-pivot);
+
+    // Where the origin lands on screen (flips below don't move it).
+    const QPointF screen_pivot = p.transform().map(pivot);
 
     // Flips mirror the image in place, whatever the origin.
     if(state.flip_h || state.flip_v){
@@ -320,9 +329,19 @@ inline void draw_sprite(QPainter& p, const sprite& s, int ms, const QHash<QStrin
         }
     }
     else{
-        // Placeholder for a missing image.
-        p.setPen(QPen(tint, 0));
+        // Missing image: magenta, never tinted, so it can't pass for a
+        // coloured sprite. The marker at the origin stays a few pixels on
+        // screen however small the sprite is scaled.
+        const QColor missing(255, 0, 255);
+        p.setPen(QPen(missing, 0));
+        p.setBrush(Qt::NoBrush);
         p.drawRect(rect);
+        p.drawLine(rect.topLeft(), rect.bottomRight());
+        p.drawLine(rect.topRight(), rect.bottomLeft());
+
+        p.resetTransform();
+        p.drawLine(screen_pivot - QPointF(4, 4), screen_pivot + QPointF(4, 4));
+        p.drawLine(screen_pivot - QPointF(-4, 4), screen_pivot + QPointF(-4, 4));
     }
 
     p.restore();

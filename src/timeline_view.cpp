@@ -1,5 +1,6 @@
 #include "timeline_view.h"
 
+#include "core/sprite_timing.h"
 #include "core/time_format.h"
 
 #include <QClipboard>
@@ -21,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <optional>
 
 namespace {
     constexpr double min_zoom = 0.002;  // px per ms: ~10 minutes in 1200 px
@@ -77,6 +79,53 @@ namespace {
         }
 
         return QColor(0xc8, 0xc8, 0xc8);
+    }
+
+    const QColor loop_color(0xd8, 0xb4, 0x4a);
+    const QColor trigger_color(0xe0, 0x6c, 0x5a);
+    const QColor sample_color(0x5a, 0xc8, 0xc8);
+
+    QColor bar_color(const timeline_bar& bar, layer_t layer){
+        switch(bar.kind){
+            case timeline_bar_kind::command:  return command_color(bar.type);
+            case timeline_bar_kind::loop:     return loop_color;
+            case timeline_bar_kind::trigger:  return trigger_color;
+            case timeline_bar_kind::sample:   return sample_color;
+            case timeline_bar_kind::lifetime: break;
+        }
+
+        return layer_color(layer);
+    }
+
+    // Square shown before a lane's name, in its bars' colour.
+    std::optional<QColor> lane_color(const timeline_row& row){
+        switch(row.kind){
+            case timeline_row_kind::command_lane: return command_color(row.command_type);
+            case timeline_row_kind::loop_lane:    return loop_color;
+            case timeline_row_kind::trigger_lane: return trigger_color;
+            case timeline_row_kind::samples:      return sample_color;
+            default:                              return std::nullopt;
+        }
+    }
+
+    // Commands as a short list of their names: "Fade, Scale ×2".
+    QString command_summary(const QVector<command>& cmds){
+        QStringList parts;
+
+        for(int type = int(cmd_t::fade); type <= int(cmd_t::additive); ++type){
+            const auto count = std::count_if(cmds.begin(), cmds.end(), [type](const command& c){
+                return int(c.type) == type;
+            });
+
+            if(count == 1){
+                parts << timeline_model::command_name(cmd_t(type));
+            }
+            else if(count > 1){
+                parts << QStringLiteral("%1 ×%2").arg(timeline_model::command_name(cmd_t(type))).arg(count);
+            }
+        }
+
+        return parts.isEmpty() ? QStringLiteral("no commands") : parts.join(QStringLiteral(", "));
     }
 
     QString format_number(double value){
@@ -543,7 +592,7 @@ void TimelineView::paint_rows(QPainter& p){
 void TimelineView::paint_header(QPainter& p, int index, const QRect& rect){
     const timeline_row& row = m_model.rows().at(index);
     const int indent = row_indent(row);
-    const bool hidden = !is_layer_visible(row.layer);
+    const bool hidden = row.kind != timeline_row_kind::samples && !is_layer_visible(row.layer);
 
     if(row.expandable){
         draw_triangle(p, QRectF(indent, rect.center().y() - 4.5, 9, 9), row.expanded);
@@ -557,8 +606,8 @@ void TimelineView::paint_header(QPainter& p, int index, const QRect& rect){
         text_right = eye_rect(index).left() - 6;
     }
 
-    if(row.kind == timeline_row_kind::command_lane){
-        p.fillRect(QRect(text_left, rect.center().y() - 4, 8, 8), command_color(row.command_type));
+    if(const auto color = lane_color(row)){
+        p.fillRect(QRect(text_left, rect.center().y() - 4, 8, 8), *color);
         text_left += 14;
     }
 
@@ -603,7 +652,8 @@ void TimelineView::paint_footer(QPainter& p){
 void TimelineView::paint_bars(QPainter& p, const timeline_row& row, const QRect& rect){
     const double view_t0 = ms_for_x(rect.left());
     const double view_t1 = ms_for_x(rect.right());
-    const bool hidden = !is_layer_visible(row.layer);
+    const bool hidden = row.kind != timeline_row_kind::samples && !is_layer_visible(row.layer);
+    const scene& sc = m_model.current_scene();
 
     // Layer rows get a thin summary line, everything else a full bar.
     const int inset = row.kind == timeline_row_kind::layer ? 8 : 4;
@@ -618,7 +668,7 @@ void TimelineView::paint_bars(QPainter& p, const timeline_row& row, const QRect&
             continue;
         }
 
-        QColor color = bar.is_command() ? command_color(bar.type) : layer_color(row.layer);
+        QColor color = bar_color(bar, row.layer);
         if(hidden){
             color.setAlpha(70);
         }
@@ -641,8 +691,48 @@ void TimelineView::paint_bars(QPainter& p, const timeline_row& row, const QRect&
         }
 
         const double x1 = std::max(x_for_ms(bar.t1), x0 + 2.0);
+        const QRectF box(x0, top, x1 - x0, bar_height);
+
+        if(bar.kind == timeline_bar_kind::trigger){
+            // Outlined: the commands only play if the trigger fires.
+            QColor fill = color;
+            fill.setAlpha(hidden ? 25 : 60);
+            p.setBrush(fill);
+            p.setPen(QPen(color, 1.0, Qt::DashLine));
+            p.drawRoundedRect(box.adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
+            p.setPen(Qt::NoPen);
+            continue;
+        }
+
         p.setBrush(color);
-        p.drawRoundedRect(QRectF(x0, top, x1 - x0, bar_height), 3, 3);
+        p.drawRoundedRect(box, 3, 3);
+
+        if(bar.kind == timeline_bar_kind::loop){
+            // A tick between passes, when they are far enough apart to see.
+            const loop_group& loop = sc.sprites.at(bar.sprite).loops.at(bar.command);
+            const int pass = timing_of(loop).duration();
+            const double pass_width = pass * (x1 - x0) / std::max(1, bar.t1 - bar.t0);
+
+            if(pass > 0 && pass_width >= 4.0){
+                p.setPen(QPen(QColor(0, 0, 0, 110), 1.0));
+
+                // Start at the first tick in view; loops can have many passes.
+                const int first_tick = std::max(1, int((view_t0 - bar.t0) / pass));
+
+                for(int k = first_tick; k < loop_passes(loop); ++k){
+                    const double x = x_for_ms(bar.t0 + double(k) * pass);
+
+                    if(x > rect.right()){
+                        break;
+                    }
+                    if(x >= rect.left()){
+                        p.drawLine(QPointF(x, top + 2), QPointF(x, top + bar_height - 2));
+                    }
+                }
+
+                p.setPen(Qt::NoPen);
+            }
+        }
     }
 
     p.setRenderHint(QPainter::Antialiasing, false);
@@ -682,7 +772,8 @@ QString TimelineView::tooltip_for(int index, int bar_index) const{
         // Header tooltip.
         QStringList lines{row.label};
 
-        if(row.first_sprite >= 0 && row.kind != timeline_row_kind::layer){
+        if(row.first_sprite >= 0 && row.kind != timeline_row_kind::layer
+                && row.kind != timeline_row_kind::samples){
             lines << sc.sprites.at(row.first_sprite).path;
         }
         if(!where.isEmpty()){
@@ -704,7 +795,7 @@ QString TimelineView::tooltip_for(int index, int bar_index) const{
     if(bar.is_command()){
         const command& cmd = sc.sprites.at(bar.sprite).cmds.at(bar.command);
         QStringList lines{
-            QStringLiteral("%1 · %2").arg(timeline_model::command_name(cmd.type), cmd.easing),
+            QStringLiteral("%1 · %2").arg(timeline_model::command_name(cmd.type), easing_name(cmd.easing)),
             range
         };
 
@@ -716,10 +807,68 @@ QString TimelineView::tooltip_for(int index, int bar_index) const{
         return lines.join('\n');
     }
 
+    if(bar.kind == timeline_bar_kind::loop){
+        const loop_group& loop = sc.sprites.at(bar.sprite).loops.at(bar.command);
+        const int pass = timing_of(loop).duration();
+
+        QStringList lines{
+            tr("Loop ×%1 from %2 ms").arg(loop_passes(loop)).arg(loop.start),
+            range,
+            tr("%1 ms per pass").arg(pass),
+            command_summary(loop.cmds)
+        };
+
+        if(!where.isEmpty()){
+            lines << where;
+        }
+
+        return lines.join('\n');
+    }
+
+    if(bar.kind == timeline_bar_kind::trigger){
+        const trigger_group& trigger = sc.sprites.at(bar.sprite).triggers.at(bar.command);
+
+        QStringList lines{
+            trigger.group != 0 ? tr("Trigger %1 (group %2)").arg(trigger.trigger).arg(trigger.group)
+                               : tr("Trigger %1").arg(trigger.trigger),
+            range,
+            command_summary(trigger.cmds),
+            tr("Plays in osu! only; the preview can't fire triggers.")
+        };
+
+        if(!where.isEmpty()){
+            lines << where;
+        }
+
+        return lines.join('\n');
+    }
+
+    if(bar.kind == timeline_bar_kind::sample){
+        const sample& smp = sc.samples.at(bar.command);
+
+        QStringList lines{
+            smp.path,
+            range,
+            tr("%1 layer, volume %2").arg(timeline_model::layer_name(smp.layer)).arg(smp.volume),
+            tr("Not played in the preview yet.")
+        };
+
+        if(smp.source_line > 0){
+            lines << tr("line %1").arg(smp.source_line);
+        }
+
+        return lines.join('\n');
+    }
+
     QStringList lines{row.label, range};
 
     if(row.kind == timeline_row_kind::sprite && bar.sprite >= 0){
-        const auto count = sc.sprites.at(bar.sprite).cmds.size();
+        const sprite& spr = sc.sprites.at(bar.sprite);
+        qsizetype count = spr.cmds.size();
+
+        for(const loop_group& loop : spr.loops){
+            count += loop.cmds.size();
+        }
         lines << (count == 1 ? tr("1 command") : tr("%1 commands").arg(count));
     }
     else if(row.sprite_count > 1){

@@ -11,6 +11,7 @@
 #include "project/path_utils.h"
 #include "project/asset_paths.h"
 #include "project/storyboard_export.h"
+#include "project/asset_check.h"
 #include "core/osb_writer.h"
 #include "ui/script_editor.h"
 #include "ui/script_editor_factory.h"
@@ -659,10 +660,25 @@ bool MainWindow::run_script(){
     m_preview->set_scene(&m_script->current_scene());
     m_timeline->setScene(&m_script->current_scene());
 
-    const auto sprite_count = m_script->current_scene().sprites.size();
-    const QString result = tr("Script ran successfully: %n sprite(s)", nullptr, int(sprite_count));
+    const scene& sc = m_script->current_scene();
+    const QString result = tr("Script ran successfully: %n sprite(s)", nullptr, int(sc.sprites.size()));
 
     show_info(result);
+
+    // Every run, so a fixed file name or a newly added image shows up at once.
+    if(m_project_root.isEmpty()){
+        if(!sc.sprites.isEmpty() || !sc.samples.isEmpty()){
+            append_output(tr("No project open: images can't be loaded, so the preview shows "
+                             "magenta placeholders. Open or create a project to see them."),
+                          OutputKind::warning);
+        }
+    }
+    else{
+        for(const asset_problem& problem : check_assets(sc, asset_folders(m_project_root, m_asset_root))){
+            append_output(problem.message, OutputKind::warning, problem.source_line);
+        }
+    }
+
     return true;
 }
 
@@ -771,12 +787,12 @@ void MainWindow::export_storyboard(){
     }
 
     for(const QString& path : plan->missing){
-        warnings.append({QString("%1: image not found in assets/ or the beatmap folder; "
-                                 "osu! will show nothing").arg(path), 0});
+        warnings.append({QString("%1: not found in assets/ or the beatmap folder; "
+                                 "osu! will skip it").arg(path), 0});
     }
 
-    if(sc.sprites.isEmpty()){
-        warnings.append({"The storyboard is empty: the script made no sprites", 0});
+    if(sc.sprites.isEmpty() && sc.samples.isEmpty()){
+        warnings.append({"The storyboard is empty: the script made no sprites or samples", 0});
     }
 
     for(const osb_warning& warning : warnings){
@@ -787,7 +803,7 @@ void MainWindow::export_storyboard(){
             .arg(QDir::toNativeSeparators(plan->osb_path)));
 
     if(!plan->copies.isEmpty()){
-        show_info(tr("Copied %n image(s) into the beatmap folder", nullptr, int(plan->copies.size())));
+        show_info(tr("Copied %n file(s) into the beatmap folder", nullptr, int(plan->copies.size())));
     }
 
     if(!warnings.isEmpty()){
