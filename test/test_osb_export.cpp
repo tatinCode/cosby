@@ -631,6 +631,36 @@ class TestAssetCheck : public QObject{
                      QString("g.png: none of the 3 animation frames found (g0.png ... g2.png) in assets/ or beatmap/"));
         }
 
+        void suggests_a_similar_file_next_to_a_missing_one(){
+            QTemporaryDir assets;
+            QTemporaryDir beatmap;
+            QVERIFY(write_file(assets.filePath("sb/Star.png"), "x"));
+            QVERIFY(write_file(assets.filePath("sb/glow.jpg"), "x"));
+            QVERIFY(write_file(beatmap.filePath("sb/flare.png"), "x"));
+            QVERIFY(write_file(beatmap.filePath("Hit.wav"), "x"));
+
+            scene sc;
+            sc.sprites << faded_sprite("sb/star.png")      // another case
+                       << faded_sprite("sb/glow.png")      // another extension
+                       << faded_sprite("sb/flair.png")     // a typo, in the other folder
+                       << faded_sprite("sb/moon.png")      // nothing like it
+                       << faded_sprite("fx/star.png");     // a folder that doesn't exist
+            sc.samples << sample{0, layer_t::foreground, "hit.wav", 100, 3};
+
+            const auto problems = check_assets(sc, {assets.path(), beatmap.path()});
+            QCOMPARE(problems.size(), 6);
+            QCOMPARE(problems[0].message,
+                     QString("sb/star.png: image not found in assets/ or beatmap/. Did you mean \"sb/Star.png\"?"));
+            QCOMPARE(problems[1].message,
+                     QString("sb/glow.png: image not found in assets/ or beatmap/. Did you mean \"sb/glow.jpg\"?"));
+            QCOMPARE(problems[2].message,
+                     QString("sb/flair.png: image not found in assets/ or beatmap/. Did you mean \"sb/flare.png\"?"));
+            QCOMPARE(problems[3].message, QString("sb/moon.png: image not found in assets/ or beatmap/"));
+            QCOMPARE(problems[4].message, QString("fx/star.png: image not found in assets/ or beatmap/"));
+            QCOMPARE(problems[5].message,
+                     QString("hit.wav: sound not found in assets/ or beatmap/. Did you mean \"Hit.wav\"?"));
+        }
+
         void everything_found_means_no_problems(){
             QTemporaryDir dir;
             QVERIFY(write_file(dir.filePath("a.png"), "x"));

@@ -2,15 +2,58 @@
 #include "project/asset_paths.h"
 #include "core/sprite_timing.h"
 
+#include "core/name_hint.h"
+
+#include <QDir>
+#include <QFileInfo>
 #include <QSet>
+
+#include <utility>
 
 namespace {
     const QString unsafe_message =
         QStringLiteral("%1: the path must be relative to the beatmap folder, without \"..\"");
 
-    QString not_found(const QString& path, const char* what){
-        return QStringLiteral("%1: %2 not found in %3/ or beatmap/")
+    /**
+     * A file next to where `path` points that it was probably meant to be:
+     * the same name in another case or with a small typo, or the same name
+     * with another extension ("star.jpg" for "star.png"). Empty if none.
+     */
+    QString similar_file(const QStringList& folders, const QString& path){
+        const QFileInfo wanted(path);
+        const QString dir = wanted.path() == QStringLiteral(".") ? QString() : wanted.path() + '/';
+
+        QStringList names;
+        for(const QString& folder : folders){
+            if(!folder.isEmpty()){
+                names << QDir(QDir(folder).filePath(dir)).entryList(QDir::Files);
+            }
+        }
+
+        QString name = closest_name(wanted.fileName(), names);
+
+        if(name.isEmpty()){
+            for(const QString& candidate : std::as_const(names)){
+                if(QFileInfo(candidate).completeBaseName().compare(wanted.completeBaseName(), Qt::CaseInsensitive) == 0){
+                    name = candidate;
+                    break;
+                }
+            }
+        }
+
+        return name.isEmpty() ? QString() : dir + name;
+    }
+
+    QString not_found(const QString& path, const char* what, const QStringList& folders = {}){
+        QString message = QStringLiteral("%1: %2 not found in %3/ or beatmap/")
             .arg(path, QString::fromLatin1(what), QString::fromLatin1(assets_folder_name));
+
+        const QString similar = similar_file(folders, path);
+        if(!similar.isEmpty()){
+            message += QStringLiteral(". Did you mean \"%1\"?").arg(similar);
+        }
+
+        return message;
     }
 }
 
@@ -42,7 +85,7 @@ QList<asset_problem> check_assets(const scene& sc, const QStringList& folders){
 
         if(!s.is_animation()){
             if(find_asset(folders, path).isEmpty()){
-                problems.append({not_found(path, "image"), s.source_line});
+                problems.append({not_found(path, "image", folders), s.source_line});
             }
             continue;
         }
@@ -81,7 +124,7 @@ QList<asset_problem> check_assets(const scene& sc, const QStringList& folders){
             problems.append({unsafe_message.arg(smp.path), smp.source_line});
         }
         else if(find_asset(folders, path).isEmpty()){
-            problems.append({not_found(path, "sound"), smp.source_line});
+            problems.append({not_found(path, "sound", folders), smp.source_line});
         }
     }
 

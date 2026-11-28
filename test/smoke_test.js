@@ -105,12 +105,13 @@ print("Smoke test end");
 //
     SceneApi.sprite("a.png", {});
 
-//2) Guard test (x/y non-number should not override defaults)
-SceneApi.sprite("b.png", { 
-    x: "oops", 
-    y: null, 
-    position: [123, 456] 
-});
+//2) Mistake test: values of the wrong type stop the script with an error on
+//   their line. Uncomment to see "x must be a number (got "oops")".
+// SceneApi.sprite("b.png", {
+//     x: "oops",
+//     y: null,
+//     position: [123, 456]
+// });
 
 //3) Case-insensitive layer/origin test
 SceneApi.sprite("c.png", { 

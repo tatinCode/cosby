@@ -17,5 +17,9 @@ struct asset_problem{
  * `folders` (see asset_folders()). One problem per file, reported at the
  * first line that uses it; an animation's missing frames are reported
  * together. Paths that aren't relative or contain ".." are reported as such.
+ * A missing image or sound names a similar file next to it if there is one
+ * ("Did you mean "sb/Star.png"?"): another case, a small typo or another
+ * extension. Case matters because osu! on Linux, macOS and lazer is
+ * case-sensitive.
  */
 QList<asset_problem> check_assets(const scene& sc, const QStringList& folders);

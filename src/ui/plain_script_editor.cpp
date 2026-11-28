@@ -50,7 +50,7 @@ void PlainScriptEditor::show_errors(const QList<ScriptError>& errors){
 
         QTextEdit::ExtraSelection selection;
         selection.cursor = QTextCursor(block);
-        selection.format.setBackground(QColor(120, 30, 30));
+        selection.format.setBackground(error.warning ? QColor(100, 80, 20) : QColor(120, 30, 30));
         selection.format.setProperty(QTextFormat::FullWidthSelection, true);
         selection.format.setToolTip(error.message);
 

@@ -6,6 +6,7 @@ add_executable(cosby_tests
     cosby_test.h
 
     test_easing.cpp
+    test_name_hint.cpp
     test_scene_player.cpp
     test_project_file.cpp
     test_directory_copy.cpp
@@ -29,6 +30,7 @@ add_executable(cosby_tests
     ${CMAKE_SOURCE_DIR}/src/project/storyboard_export.cpp
     ${CMAKE_SOURCE_DIR}/src/project/asset_check.cpp
     ${CMAKE_SOURCE_DIR}/src/core/easing.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/name_hint.cpp
     ${CMAKE_SOURCE_DIR}/src/core/osb_writer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/time_format.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/timeline_model.cpp
@@ -38,6 +40,7 @@ add_executable(cosby_tests
     ${CMAKE_SOURCE_DIR}/src/scripting/script_host.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/js_bridge.cpp
     ${CMAKE_SOURCE_DIR}/src/scripting/js_sprite_proxy.cpp
+    ${CMAKE_SOURCE_DIR}/src/scripting/js_options.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/script_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/plain_script_editor.cpp
     ${CMAKE_SOURCE_DIR}/src/audio/playback_clock.cpp

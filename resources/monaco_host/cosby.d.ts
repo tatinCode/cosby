@@ -31,10 +31,13 @@ type CosbyTrigger =
     | "HitSoundNormal" | "HitSoundSoft" | "HitSoundDrum"
     | (string & {});
 
-/** Storyboard layer (case-insensitive). Unknown names fall back to "Foreground". */
+/** Storyboard layer (case-insensitive). Unknown names stop the script with an error. */
 type CosbyLayer = "Background" | "Foreground" | "Pass" | "Fail" | "Overlay" | (string & {});
 
-/** Sprite origin (case-insensitive). Unknown names fall back to "Center". */
+/**
+ * Sprite origin (case-insensitive). "Centre", "Middle" and "CenterCenter"
+ * also mean "Center". Unknown names stop the script with an error.
+ */
 type CosbyOrigin =
     | "TopLeft" | "TopCenter" | "TopRight"
     | "CenterLeft" | "Center" | "CenterRight"
@@ -86,6 +89,8 @@ interface CosbyTimed {
 interface CosbyEased extends CosbyTimed {
     /** Default "Linear". */
     easing?: CosbyEasing;
+    /** Milliseconds, not before startTime. Default startTime (an instant change). */
+    endTime?: number;
 }
 
 interface CosbyValueCommand extends CosbyEased {
@@ -124,7 +129,12 @@ interface CosbyColorCommand extends CosbyEased {
     b?: number;
 }
 
-/** Commands of a sprite, loop or trigger. Each returns its target, so calls can be chained. */
+/**
+ * Commands of a sprite, loop or trigger. Each returns its target, so calls
+ * can be chained. Mistakes stop the script with an error on their line: an
+ * unknown option (a typo like "startTim"), a value of the wrong type (a time
+ * of "1000" or undefined), or an endTime before the startTime.
+ */
 interface CosbyCommands {
     /** Opacity, 0-1. Default 0 → 0. */
     fade(command: CosbyValueCommand): this;
