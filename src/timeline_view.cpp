@@ -1,4 +1,5 @@
 #include "timeline_view.h"
+#include "ui/beat_snap.h"
 
 #include "core/sprite_timing.h"
 #include "core/time_format.h"
@@ -259,6 +260,15 @@ void TimelineView::setSubdivision(int div){
     update();
 }
 
+void TimelineView::setEmptyHint(const QString& hint){
+    if(hint == m_empty_hint){
+        return;
+    }
+
+    m_empty_hint = hint;
+    update();
+}
+
 void TimelineView::setPlayheadMs(qint64 ms){
     m_playhead_ms = ms;
     refresh_time_field();
@@ -463,55 +473,62 @@ void TimelineView::paintEvent(QPaintEvent*){
         p.fillPath(marker, playhead_color);
     }
 
-    if(m_model.is_empty()){
+    if(m_model.is_empty() && !m_empty_hint.isEmpty()){
         p.setPen(dim_text_color);
-        p.drawText(tracks, Qt::AlignCenter, tr("Run the script (F5) to see its sprites here"));
+        p.drawText(QRect(10, ruler_height + 6, header_width - 20, tracks.height() - 12),
+                   Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_empty_hint);
     }
 }
 
 void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
-    const double step = step_ms();
     const double beat = beat_ms();
+    const double beat_px = beat * m_pixels_per_ms;
 
     const double t0 = ms_for_x(area.left());
     const double t1 = ms_for_x(area.right());
 
-    // Skip levels that would be too dense to read (and to paint).
-    const double step_px = step * m_pixels_per_ms;
-    const double beat_px = beat * m_pixels_per_ms;
-    const bool draw_minor = step_px >= 6.0 && m_subdivision > 1;
+    // Ticks closer than this are left out, one division at a time: zoomed
+    // out, 1/2 stays after 1/4 is gone.
+    constexpr double min_tick_px = 6.0;
 
-    // Label every n-th beat, n a power of two, at least ~48 px apart.
-    int label_every = 1;
-    while(beat_px * label_every < 48.0 && label_every < (1 << 20)){
-        label_every *= 2;
+    // The finest division drawn: a divisor of the snap that is far enough apart.
+    int finest = 1;
+    for(int d = m_subdivision; d > 1; --d){
+        if(m_subdivision % d == 0 && beat_px / d >= min_tick_px){
+            finest = d;
+            break;
+        }
     }
 
-    // Major lines: every beat if readable, otherwise only labelled beats.
-    const int major_every = beat_px >= 5.0 ? 1 : label_every;
+    // In the ruler a finer division is shorter; behind the rows it's fainter.
+    auto tick_height = [](int division){
+        return division == 2 ? 9 : division <= 4 ? 7 : 5;
+    };
 
-    const QPen minor_pen(QColor(48, 48, 50));
-    const QPen major_pen(ruler ? QColor(110, 110, 110) : QColor(58, 58, 62));
-    const QPen bar_pen(ruler ? QColor(150, 150, 150) : QColor(70, 70, 76));
+    auto pen_for = [ruler](int division, int alpha){
+        QColor color = beat_division_color(division);
+        if(!ruler){
+            color.setAlpha(alpha);
+        }
+        return QPen(color);
+    };
 
-    QFont font = p.font();
-    font.setPointSizeF(std::max(7.5, font.pointSizeF() - 1.0));
-    p.setFont(font);
-
-    if(draw_minor){
-        p.setPen(minor_pen);
-
+    if(finest > 1){
+        const double step = beat / finest;
         const qint64 first = qint64(std::floor((t0 - m_beat_offset_ms) / step));
         const qint64 last = qint64(std::ceil((t1 - m_beat_offset_ms) / step));
 
         for(qint64 k = first; k <= last; ++k){
-            if(k % m_subdivision == 0){
+            const int division = beat_division(k, finest);
+            if(division == 1){
                 continue;   // drawn as a beat line
             }
 
+            p.setPen(pen_for(division, 40));
+
             const double x = x_for_ms(m_beat_offset_ms + k * step);
             if(ruler){
-                p.drawLine(QPointF(x, area.bottom() - 5), QPointF(x, area.bottom()));
+                p.drawLine(QPointF(x, area.bottom() - tick_height(division)), QPointF(x, area.bottom()));
             }
             else{
                 p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()));
@@ -519,25 +536,26 @@ void TimelineView::paint_grid(QPainter& p, const QRect& area, bool ruler){
         }
     }
 
+    // Beats: every one if readable, otherwise every n-th, n a power of two.
+    int beat_every = 1;
+    while(beat_px * beat_every < 5.0 && beat_every < (1 << 20)){
+        beat_every *= 2;
+    }
+
     const qint64 first_beat = qint64(std::floor((t0 - m_beat_offset_ms) / beat));
     const qint64 last_beat = qint64(std::ceil((t1 - m_beat_offset_ms) / beat));
 
-    // Round down to a multiple of major_every (also for negative beats).
-    const qint64 start = qint64(std::floor(double(first_beat) / major_every)) * major_every;
+    // Round down to a multiple of beat_every (also for negative beats).
+    const qint64 start = qint64(std::floor(double(first_beat) / beat_every)) * beat_every;
 
-    for(qint64 k = start; k <= last_beat; k += major_every){
+    for(qint64 k = start; k <= last_beat; k += beat_every){
         const double x = x_for_ms(m_beat_offset_ms + k * beat);
         const bool measure = k % 4 == 0;
 
-        p.setPen(measure ? bar_pen : major_pen);
+        p.setPen(pen_for(1, measure ? 75 : 45));
 
         if(ruler){
-            p.drawLine(QPointF(x, area.bottom() - (measure ? 12 : 8)), QPointF(x, area.bottom()));
-
-            if(k % label_every == 0){
-                p.setPen(measure ? text_color : dim_text_color);
-                p.drawText(QPointF(x + 3, 11), QString::number(k));
-            }
+            p.drawLine(QPointF(x, area.bottom() - (measure ? 16 : 11)), QPointF(x, area.bottom()));
         }
         else{
             p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()));

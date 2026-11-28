@@ -26,9 +26,6 @@ class MainWindow : public QMainWindow {
         explicit MainWindow(QWidget* parent = nullptr);
         ~MainWindow() override;
 
-    private slots:
-        void on_division_changed(int idx);
-
     public slots:
         //playback
         void on_play();     // toggles play/pause
@@ -82,8 +79,14 @@ class MainWindow : public QMainWindow {
       
         bool open_project_file(const QString& project_file_path);
         void apply_beatmap(const BeatmapImportInfo& beatmap);
-        // The beatmap copy's song, or empty when the beatmap names none.
-        QString song_path() const;
+        // A file of the beatmap copy, by the name the .osu gives it; empty
+        // when there's no name or it points outside the folder. The file
+        // may not exist.
+        QString beatmap_file_path(const QString& name) const;
+
+        // The timeline's hint while it has no rows, from the project and
+        // the last script run.
+        void update_timeline_hint();
 
         //script editor
         void attach_editor(ScriptEditor* editor);
@@ -146,4 +149,8 @@ class MainWindow : public QMainWindow {
 
         // Set once the user agreed to close, so the re-sent close is accepted.
         bool m_close_confirmed = false;
+
+        // The last script run since the project opened.
+        enum class ScriptRun { none, succeeded, failed };
+        ScriptRun m_last_run = ScriptRun::none;
 };

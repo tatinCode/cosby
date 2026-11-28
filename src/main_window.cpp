@@ -246,6 +246,7 @@ MainWindow::MainWindow(QWidget* parent):
     update_window_title();
     update_action_state();
     update_bpm_display();
+    update_timeline_hint();
 
     if(!editor_notice.isEmpty()){
         show_info(editor_notice);
@@ -282,13 +283,16 @@ void MainWindow::create_toolbar(){
     tb->addWidget(snap_label);
 
     auto* division_box = new QComboBox(tb);
-    division_box->addItems({"1/1", "1/2", "1/4", "1/8", "1/16", "1/32"});
-    division_box->setCurrentIndex(2);       // matches TimelineView's default of 1/4
+    for(const int division : {1, 2, 3, 4, 6, 8, 12, 16, 32}){
+        division_box->addItem(QString("1/%1").arg(division), division);
+    }
+    division_box->setCurrentIndex(division_box->findData(4));  // TimelineView's default
     division_box->setToolTip(tr("Beat snap divisor for the timeline"));
     division_box->setFocusPolicy(Qt::ClickFocus);
 
-    connect(division_box, &QComboBox::currentIndexChanged,
-            this, &MainWindow::on_division_changed);
+    connect(division_box, &QComboBox::currentIndexChanged, this, [this, division_box](int index){
+        m_timeline->setSubdivision(division_box->itemData(index).toInt());
+    });
     tb->addWidget(division_box);
 
     //push export actions to the right edge
@@ -379,11 +383,6 @@ void MainWindow::update_bpm_display(){
     m_bpm_action->setVisible(has_project);
 }
 
-
-void MainWindow::on_division_changed(int idx){
-    static const int divs[] = {1, 2, 4, 8, 16, 32};
-    m_timeline->setSubdivision(divs[idx]);
-}
 
 /**
  * fucntions for menu bar below
@@ -676,10 +675,15 @@ bool MainWindow::run_script(){
         append_output(message, OutputKind::error, in_script ? error->line : 0);
         m_dock_output->show();
         m_dock_output->raise();
+
+        m_last_run = ScriptRun::failed;
+        update_timeline_hint();
         return false;
     }
 
     m_editor->show_errors({});
+    m_last_run = ScriptRun::succeeded;
+    update_timeline_hint();
 
     m_preview->set_scene(&m_script->current_scene());
     m_timeline->setScene(&m_script->current_scene());
@@ -1037,6 +1041,7 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     m_timeline->setScene(nullptr);
     m_timeline->showAllLayers();
     m_output->clear();
+    m_last_run = ScriptRun::none;
 
     apply_beatmap(*beatmap);
     m_editor->set_text(script_contents);
@@ -1047,6 +1052,7 @@ bool MainWindow::open_project_file(const QString& project_file_path){
     update_window_title();
     update_action_state();
     update_bpm_display();
+    update_timeline_hint();
 
     show_info(tr("Opened %1").arg(QDir::toNativeSeparators(project_file_path)));
 
@@ -1063,23 +1069,44 @@ void MainWindow::apply_beatmap(const BeatmapImportInfo& beatmap){
     m_timeline->setBpm(m_bpm);
     m_timeline->setBeatOffsetMs(beatmap.beat_offset_ms);
     m_preview->set_asset_folders(asset_folders(m_project_root, m_asset_root));
-    m_playback->set_song(song_path());
+    m_playback->set_song(beatmap_file_path(m_audio_file));
+    m_preview->set_placeholder_background(beatmap_file_path(m_background_file));
 
     // The difficulty (in the title) and BPM can change on a beatmap update.
     update_window_title();
     update_bpm_display();
 }
 
-QString MainWindow::song_path() const{
-    if(m_audio_file.isEmpty() || m_asset_root.isEmpty()){
+QString MainWindow::beatmap_file_path(const QString& name) const{
+    if(name.isEmpty() || m_asset_root.isEmpty()){
         return {};
     }
 
     // Not find_asset(): a missing song still gets a path, so the warning
     // can name it.
-    const QString file = normalize_asset_path(m_audio_file);
+    const QString file = normalize_asset_path(name);
 
     return is_safe_asset_path(file) ? QDir(m_asset_root).filePath(file) : QString();
+}
+
+void MainWindow::update_timeline_hint(){
+    QString hint;
+
+    switch(m_last_run){
+        case ScriptRun::failed:
+            hint = tr("Script error: see Output");
+            break;
+        case ScriptRun::succeeded:
+            hint = tr("The script made no sprites yet");
+            break;
+        case ScriptRun::none:
+            hint = m_project_file_path.isEmpty()
+                ? tr("Open or create a project to start")
+                : tr("Press F5 (or Run) to run the script");
+            break;
+    }
+
+    m_timeline->setEmptyHint(hint);
 }
 
 namespace {

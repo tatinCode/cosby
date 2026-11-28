@@ -1,5 +1,6 @@
 #include "timeline_view.h"
 #include "ui/timeline_model.h"
+#include "ui/beat_snap.h"
 #include "core/time_format.h"
 #include "cosby_test.h"
 
@@ -462,6 +463,46 @@ class TestTimeFormat : public QObject {
 
 COSBY_TEST(TestTimeFormat)
 
+class TestBeatSnap : public QObject {
+    Q_OBJECT
+
+    private slots:
+        void ticks_take_the_simplest_division(){
+            // 1/8 grid: beat, 1/8, 1/4, 1/8, 1/2, 1/8, 1/4, 1/8, next beat
+            const int expected[] = {1, 8, 4, 8, 2, 8, 4, 8, 1};
+            for(int k = 0; k <= 8; ++k){
+                QCOMPARE(beat_division(k, 8), expected[k]);
+            }
+        }
+
+        void triplet_grids(){
+            // 1/6: beat, 1/6, 1/3, 1/2, 1/3, 1/6
+            const int expected[] = {1, 6, 3, 2, 3, 6};
+            for(int k = 0; k < 6; ++k){
+                QCOMPARE(beat_division(k, 6), expected[k]);
+            }
+            QCOMPARE(beat_division(4, 12), 3);
+            QCOMPARE(beat_division(3, 12), 4);
+        }
+
+        void negative_ticks_and_whole_beats(){
+            QCOMPARE(beat_division(-1, 4), 4);
+            QCOMPARE(beat_division(-2, 4), 2);
+            QCOMPARE(beat_division(-8, 4), 1);
+            QCOMPARE(beat_division(7, 1), 1);
+            QCOMPARE(beat_division(5, 0), 1);
+        }
+
+        void colours_match_osu(){
+            QCOMPARE(beat_division_color(1), QColor(Qt::white));
+            QVERIFY(beat_division_color(2) != beat_division_color(4));
+            QVERIFY(beat_division_color(3) != beat_division_color(6));
+            QCOMPARE(beat_division_color(32), beat_division_color(5));     // no colour: grey
+        }
+};
+
+COSBY_TEST(TestBeatSnap)
+
 namespace {
     // Layout constants mirrored from TimelineView.
     constexpr int ruler_height = 24;
@@ -543,6 +584,65 @@ class TestTimelineView : public QObject {
 
             QCOMPARE(view->model().rows().size(), qsizetype(9));
             QVERIFY(view->model().rows().at(3).expanded);
+        }
+
+        void the_hint_shows_in_the_left_column_while_empty(){
+            const QString hint = "Press F5 (or Run) to run the script";
+
+            TimelineView view;
+            view.resize(900, 400);
+            view.show();
+            const QImage without = view.grab().toImage();
+
+            view.setEmptyHint(hint);
+            QCOMPARE(view.emptyHint(), hint);
+            const QImage with = view.grab().toImage();
+
+            // Only the left column changed: the tracks stay clean.
+            bool in_header = false;
+            for(int y = 0; y < with.height(); ++y){
+                for(int x = 0; x < with.width(); ++x){
+                    if(with.pixelColor(x, y) != without.pixelColor(x, y)){
+                        QVERIFY2(x < 220, qPrintable(QString("changed at %1,%2").arg(x).arg(y)));
+                        in_header = true;
+                    }
+                }
+            }
+            QVERIFY(in_header);
+
+            // With rows there's nothing to hint at.
+            const scene sc = sample_scene();
+            view.setScene(&sc);
+            const QImage rows_with_hint = view.grab().toImage();
+            view.setEmptyHint({});
+            QCOMPARE(view.grab().toImage(), rows_with_hint);
+        }
+
+        void the_ruler_has_coloured_ticks_and_no_numbers(){
+            auto view = make_view();
+            view->setSubdivision(2);
+            view->setPlayheadMs(-1000000);      // out of view: it crosses the ruler
+
+            const QImage image = view->grab().toImage();
+            const QColor ruler_background(36, 36, 36);
+
+            // Along the bottom of the ruler: white beats and red 1/2 ticks.
+            int white = 0, red = 0;
+            for(int x = 221; x < image.width(); ++x){
+                const QColor c = image.pixelColor(x, 22);
+                white += c.red() > 200 && c.green() > 200 && c.blue() > 200;
+                red += c.red() > 180 && c.green() < 80 && c.blue() < 80;
+            }
+            QVERIFY(white > 0);
+            QVERIFY(red > 0);
+
+            // The top is above even the bar lines: nothing is drawn there,
+            // so no beat numbers either.
+            for(int y = 1; y <= 6; ++y){
+                for(int x = 221; x < image.width(); ++x){
+                    QCOMPARE(image.pixelColor(x, y), ruler_background);
+                }
+            }
         }
 
         void paints_loops_triggers_and_samples(){

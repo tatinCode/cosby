@@ -8,6 +8,7 @@
 #include <QDir>
 
 #include <algorithm>
+#include <cmath>
 
 PreviewWidget::PreviewWidget(QWidget* parent):
     QWidget(parent){
@@ -20,6 +21,13 @@ void PreviewWidget::set_time_ms(qint64 ms){
     }
 
     m_time_ms = ms;
+    update();
+}
+
+void PreviewWidget::set_placeholder_background(const QString& path){
+    // Always reloaded: a beatmap update can replace the file under the same name.
+    m_placeholder = path.isEmpty() ? QPixmap() : QPixmap(path);
+    m_placeholder_scaled = QPixmap();
     update();
 }
 
@@ -50,18 +58,20 @@ void PreviewWidget::paintEvent(QPaintEvent*){
     QPainter p(this);
     p.fillRect(rect(), QColor(18, 18, 22));
 
-    if(!m_has_scene){
-        p.setPen(QColor(110, 110, 120));
-        p.drawText(rect(), Qt::AlignCenter, tr("Run the script (F5) to preview the storyboard"));
-        return;
-    }
-
     const QRectF screen = playfield_rect();
     const double scale = screen.height() / playfield_height;
 
     p.fillRect(screen, Qt::black);
     p.setClipRect(screen);
     p.setRenderHint(QPainter::SmoothPixmapTransform);
+
+    if(m_scene.sprites.isEmpty()){
+        draw_placeholder(p, screen);
+    }
+
+    if(!m_has_scene){
+        return;
+    }
 
     p.save();
     p.translate(screen.left() - widescreen_left * scale, screen.top());
@@ -82,6 +92,25 @@ void PreviewWidget::paintEvent(QPaintEvent*){
         p.drawText(screen.adjusted(8, 0, -8, -6), Qt::AlignBottom | Qt::AlignLeft,
                 tr("No project open: images can't be loaded"));
     }
+}
+
+void PreviewWidget::draw_placeholder(QPainter& p, const QRectF& screen){
+    if(m_placeholder.isNull()){
+        return;
+    }
+
+    // Fills the screen and is centred, cropping what sticks out, like osu!.
+    const QSize target = m_placeholder.size().scaled(screen.size().toSize(), Qt::KeepAspectRatioByExpanding);
+
+    // Scaled once per size, not on every frame.
+    if(m_placeholder_scaled.size() != target){
+        m_placeholder_scaled = m_placeholder.scaled(target, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    }
+
+    const QPointF top_left(screen.center().x() - target.width() / 2.0,
+                           screen.center().y() - target.height() / 2.0);
+    p.drawPixmap(top_left, m_placeholder_scaled);
+    p.fillRect(screen, QColor(0, 0, 0, int(std::lround(placeholder_dim * 255))));
 }
 
 void PreviewWidget::set_layer_visible(layer_t layer, bool visible){

@@ -34,6 +34,10 @@ public:
     void setScene(const scene* sc);
     void fitToScene();
 
+    // Shown in the left column while there are no rows (what to do next).
+    void setEmptyHint(const QString& hint);
+    const QString& emptyHint() const { return m_empty_hint; }
+
     // Makes every layer visible again (emits layerVisibilityChanged).
     void showAllLayers();
 
@@ -124,6 +128,7 @@ private:
     double m_beat_offset_ms = 0.0;
     int m_subdivision;
 
+    QString m_empty_hint;
     QString m_selected_key;
     unsigned m_hidden_layers = 0;   // bit per layer_t
 

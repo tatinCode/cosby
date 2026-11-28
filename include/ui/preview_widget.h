@@ -26,6 +26,16 @@ class PreviewWidget : public QWidget {
         // assets/ first, then the beatmap copy).
         void set_asset_folders(const QStringList& folders);
 
+        // The beatmap's background image (absolute path; empty for none).
+        // Shown dimmed, as a stand-in, while the storyboard has no sprites:
+        // before the script runs or when it makes none. Never exported.
+        // A missing or unreadable image leaves the preview black.
+        void set_placeholder_background(const QString& path);
+        bool has_placeholder_background() const { return !m_placeholder.isNull(); }
+
+        // How much the placeholder is darkened (0 = as is, 1 = black).
+        static constexpr double placeholder_dim = 0.4;
+
         // Where the widescreen playfield (854x480, x from -107) lands in the
         // widget; storyboard coordinates are mapped onto it.
         QRectF playfield_rect() const;
@@ -40,6 +50,11 @@ class PreviewWidget : public QWidget {
         qint64 m_time_ms {};
 
         void load_pixmaps();
+        void draw_placeholder(QPainter& p, const QRectF& screen);
+
+        QPixmap m_placeholder;
+        QPixmap m_placeholder_scaled;   // m_placeholder at its last drawn size
+
         QStringList m_asset_folders;
         QHash<QString, QPixmap> m_pixmap_cache;
 };
