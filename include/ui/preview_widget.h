@@ -6,6 +6,8 @@
 
 #include "core/scene.h"
 
+class QVariantAnimation;
+
 // Draws the storyboard at the time it's given (playback_controller owns
 // the time).
 class PreviewWidget : public QWidget {
@@ -36,6 +38,12 @@ class PreviewWidget : public QWidget {
         // How much the placeholder is darkened (0 = as is, 1 = black).
         static constexpr double placeholder_dim = 0.4;
 
+        // A short note in the top-right corner, over the storyboard (never
+        // exported). It fades out by itself over duration_ms; empty text
+        // removes it at once.
+        void show_note(const QString& text, int duration_ms = 3500);
+        bool has_note() const { return m_note_opacity > 0.0; }
+
         // Where the widescreen playfield (854x480, x from -107) lands in the
         // widget; storyboard coordinates are mapped onto it.
         QRectF playfield_rect() const;
@@ -51,9 +59,15 @@ class PreviewWidget : public QWidget {
 
         void load_pixmaps();
         void draw_placeholder(QPainter& p, const QRectF& screen);
+        void draw_storyboard(QPainter& p, const QRectF& screen);
+        void draw_note(QPainter& p);
 
         QPixmap m_placeholder;
         QPixmap m_placeholder_scaled;   // m_placeholder at its last drawn size
+
+        QString m_note;
+        double m_note_opacity = 0.0;
+        QVariantAnimation* m_note_fade = nullptr;
 
         QStringList m_asset_folders;
         QHash<QString, QPixmap> m_pixmap_cache;

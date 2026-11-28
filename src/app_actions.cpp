@@ -59,11 +59,20 @@ AppActions::AppActions(QObject* parent) : QObject(parent){
     act_stop->setToolTip(tr("Stop and go back to 0:00"));
     act_stop->setIcon(style->standardIcon(QStyle::SP_MediaStop));
 
+    //view tab
+    act_preview_only = new QAction(tr("Preview &Only"), this);
+    act_preview_only->setCheckable(true);
+    act_preview_only->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_F));
+    act_preview_only->setToolTip(tr("Hide all panels so the preview fills the window (Ctrl+Shift+F to bring them back)"));
+
+    act_reset_layout = new QAction(tr("&Reset Layout"), this);
+    act_reset_layout->setToolTip(tr("Put every panel back where it started and show them all"));
+
     //help tab
     act_about = new QAction("&About cosby", this);
 
     //make shortcuts work app-wide
-    for(QAction* a : {act_new, act_open, act_save, act_exit}){
+    for(QAction* a : {act_new, act_open, act_save, act_exit, act_preview_only}){
         a->setShortcutContext(Qt::ApplicationShortcut);
     }
 }
@@ -85,6 +94,10 @@ void AppActions::connect_slots(MainWindow* r){ //r is the receiver
     //playback
     QObject::connect(act_play_pause, &QAction::triggered, r, &MainWindow::on_play);
     QObject::connect(act_stop, &QAction::triggered, r, &MainWindow::on_stop);
+
+    //view tab
+    QObject::connect(act_preview_only, &QAction::toggled, r, &MainWindow::on_preview_only);
+    QObject::connect(act_reset_layout, &QAction::triggered, r, &MainWindow::on_reset_layout);
 
     //help tab
     QObject::connect(act_about, &QAction::triggered, r, &MainWindow::on_about);

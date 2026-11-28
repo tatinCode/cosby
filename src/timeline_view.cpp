@@ -282,7 +282,6 @@ void TimelineView::setCompact(bool compact){
     m_compact_action->setChecked(compact);      // back here, but equal by now
 
     update_scrollbar();
-    updateGeometry();
     update();
 
     emit compactChanged(compact);

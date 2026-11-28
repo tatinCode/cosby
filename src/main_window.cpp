@@ -18,6 +18,8 @@
 #include "ui/script_editor_factory.h"
 
 #include <QAction>
+#include <QKeySequence>
+#include <QSignalBlocker>
 #include <QAudio>
 #include <QCloseEvent>
 #include <QDockWidget>
@@ -236,11 +238,15 @@ MainWindow::MainWindow(QWidget* parent):
     create_menus();
     m_actions->connect_slots(this);
 
-    m_actions->menu_view->addAction(m_dock_code->toggleViewAction());
-    m_actions->menu_view->addAction(m_dock_timeline->toggleViewAction());
-    m_actions->menu_view->addAction(m_dock_output->toggleViewAction());
+    m_actions->menu_view->setToolTipsVisible(true);
+    add_panel_action(m_dock_code, tr("Show or hide the script editor (Alt+1)"), QKeySequence(Qt::ALT | Qt::Key_1));
+    add_panel_action(m_dock_timeline, tr("Show or hide the timeline (Alt+2)"), QKeySequence(Qt::ALT | Qt::Key_2));
+    add_panel_action(m_dock_output, tr("Show or hide the script output (Alt+3)"), QKeySequence(Qt::ALT | Qt::Key_3));
     m_actions->menu_view->addSeparator();
     m_actions->menu_view->addAction(m_timeline->compactAction());
+    m_actions->menu_view->addSeparator();
+    m_actions->menu_view->addAction(m_actions->act_preview_only);
+    m_actions->menu_view->addAction(m_actions->act_reset_layout);
     rebuild_recent_menu();
 
     restore_window_layout();
@@ -314,6 +320,7 @@ void MainWindow::create_output_dock(){
     output_font.setPointSizeF(std::max(output_font.pointSizeF(), 11.0));
     m_output->setFont(output_font);
     m_output->setToolTip(tr("Script output. Double-click an error to jump to its line."));
+    m_output->setMinimumSize(1, 1);     // no minimum: squeeze it as far as you like
 
     connect(m_output, &QListWidget::itemActivated, this, &MainWindow::on_output_activated);
 
@@ -321,7 +328,7 @@ void MainWindow::create_output_dock(){
     m_dock_output->setObjectName("dock_output");
     m_dock_output->setWidget(m_output);
     addDockWidget(Qt::BottomDockWidgetArea, m_dock_output);
-    splitDockWidget(m_dock_timeline, m_dock_output, Qt::Horizontal);
+    tabifyDockWidget(m_dock_timeline, m_dock_output);
 }
 
 void MainWindow::append_output(const QString& text, OutputKind kind, int line){
@@ -675,8 +682,7 @@ bool MainWindow::run_script(){
                     QString::number(error->line));
 
         append_output(message, OutputKind::error, in_script ? error->line : 0);
-        m_dock_output->show();
-        m_dock_output->raise();
+        show_output();
 
         m_last_run = ScriptRun::failed;
         update_timeline_hint();
@@ -841,8 +847,7 @@ void MainWindow::export_storyboard(){
     }
 
     if(!warnings.isEmpty()){
-        m_dock_output->show();
-        m_dock_output->raise();
+        show_output();
     }
 }
 
@@ -857,10 +862,16 @@ void MainWindow::show_info(const QString& message){
     append_output(message, OutputKind::info);
 }
 
-void MainWindow::show_error(const QString& message){
-    append_output(message, OutputKind::error);
+void MainWindow::show_output(){
+    // Something to read there: out of Preview Only, and in front of the Timeline.
+    drop_preview_only();
     m_dock_output->show();
     m_dock_output->raise();
+}
+
+void MainWindow::show_error(const QString& message){
+    append_output(message, OutputKind::error);
+    show_output();
 }
 
 void MainWindow::report_error(const QString& title, const QString& message){
@@ -964,7 +975,10 @@ void MainWindow::on_clear_recent_projects(){
 
 namespace {
     const QString timeline_compact_key = QStringLiteral("timeline/compact");
-    const QString timeline_detailed_height_key = QStringLiteral("timeline/detailed_height");
+
+    // Bumped when the default arrangement changes, so old saved layouts are
+    // dropped once. 1: Output became a tab next to Timeline.
+    constexpr int layout_version = 1;
 }
 
 void MainWindow::restore_window_layout(){
@@ -979,43 +993,126 @@ void MainWindow::restore_window_layout(){
         }
 
         resize(size);
-
-        // Give the script editor a useful share of the width.
-        resizeDocks({m_dock_code}, {size.width() * 2 / 5}, Qt::Horizontal);
-        resizeDocks({m_dock_timeline}, {260}, Qt::Vertical);
-        resizeDocks({m_dock_timeline, m_dock_output},
-                    {size.width() * 3 / 4, size.width() / 4}, Qt::Horizontal);
     }
 
-    // Before the state, so a compact panel's saved height fits its minimum.
     m_timeline->setCompact(settings.value(timeline_compact_key, false).toBool());
-    restoreState(settings.value("window/state").toByteArray());
-
-    // From now on the panel shrinks and grows with the mode; the detailed
-    // height comes back when leaving compact.
-    connect(m_timeline, &TimelineView::compactChanged, this, [this](bool compact){
-        QSettings settings;
-        settings.setValue(timeline_compact_key, compact);
-
-        if(m_dock_timeline->isFloating()){
-            return;
-        }
-
-        if(compact){
-            settings.setValue(timeline_detailed_height_key, m_dock_timeline->height());
-            resizeDocks({m_dock_timeline}, {TimelineView::compact_height}, Qt::Vertical);
-        }
-        else{
-            const int height = settings.value(timeline_detailed_height_key, 260).toInt();
-            resizeDocks({m_dock_timeline}, {std::max(height, m_timeline->minimumSizeHint().height())}, Qt::Vertical);
-        }
+    connect(m_timeline, &TimelineView::compactChanged, this, [](bool compact){
+        QSettings().setValue(timeline_compact_key, compact);
     });
+
+    if(!restoreState(settings.value("window/state").toByteArray(), layout_version)){
+        apply_default_layout();
+    }
 }
 
 void MainWindow::save_window_layout(){
     QSettings settings;
     settings.setValue("window/geometry", saveGeometry());
-    settings.setValue("window/state", saveState());
+
+    // Closed in Preview Only: keep the panels for next time.
+    settings.setValue("window/state", m_layout_before_preview_only.isEmpty()
+            ? saveState(layout_version) : m_layout_before_preview_only);
+}
+
+void MainWindow::apply_default_layout(){
+    // Adding a dock again moves it.
+    for(QDockWidget* dock : {m_dock_code, m_dock_timeline, m_dock_output}){
+        dock->setFloating(false);
+    }
+
+    addDockWidget(Qt::RightDockWidgetArea, m_dock_code);
+    addDockWidget(Qt::BottomDockWidgetArea, m_dock_timeline);
+    tabifyDockWidget(m_dock_timeline, m_dock_output);
+
+    for(QDockWidget* dock : {m_dock_code, m_dock_timeline, m_dock_output}){
+        dock->show();
+    }
+    m_dock_timeline->raise();
+
+    // Give the script editor a useful share of the width.
+    resizeDocks({m_dock_code}, {width() * 2 / 5}, Qt::Horizontal);
+    resizeDocks({m_dock_timeline}, {260}, Qt::Vertical);
+}
+
+void MainWindow::add_panel_action(QDockWidget* dock, const QString& tip, const QKeySequence& key){
+    // Our own action instead of the dock's toggleViewAction(), which would
+    // close a panel that's only behind another tab.
+    auto* action = new QAction(dock->windowTitle(), this);
+    action->setCheckable(true);
+    action->setChecked(dock->toggleViewAction()->isChecked());
+    action->setShortcut(key);
+    action->setShortcutContext(Qt::ApplicationShortcut);    // floating panels too
+    action->setToolTip(tip);
+    addAction(action);
+    m_actions->menu_view->addAction(action);
+
+    connect(action, &QAction::triggered, this, [this, dock, action]{
+        toggle_panel(dock);
+        // It toggled itself on the click; the dock decides.
+        action->setChecked(dock->toggleViewAction()->isChecked());
+    });
+    // Closed with its own button, shown by Reset Layout, ...
+    connect(dock->toggleViewAction(), &QAction::toggled, action, &QAction::setChecked);
+
+    // Whether the panel is in front: Qt reports tab switches here too.
+    connect(dock, &QDockWidget::visibilityChanged, dock, [dock](bool visible){
+        dock->setProperty("cosby_in_front", visible);
+    });
+}
+
+void MainWindow::toggle_panel(QDockWidget* dock){
+    const bool open = dock->toggleViewAction()->isChecked();
+
+    if(!open){
+        // Showing a panel ends Preview Only, but only this one comes back.
+        drop_preview_only();
+        dock->show();
+        dock->raise();
+    }
+    else if(!dock->property("cosby_in_front").toBool()){
+        dock->raise();
+    }
+    else{
+        dock->hide();
+    }
+}
+
+void MainWindow::on_preview_only(bool on){
+    if(on){
+        m_layout_before_preview_only = saveState(layout_version);
+
+        for(QDockWidget* dock : {m_dock_code, m_dock_timeline, m_dock_output}){
+            dock->hide();
+        }
+
+        m_preview->show_note(tr("Preview only: Ctrl+Shift+F to show the panels"));
+        return;
+    }
+
+    if(m_layout_before_preview_only.isEmpty()){
+        return;     // already dropped
+    }
+
+    restoreState(m_layout_before_preview_only, layout_version);
+    m_layout_before_preview_only.clear();
+    m_preview->show_note({});
+}
+
+void MainWindow::drop_preview_only(){
+    if(m_layout_before_preview_only.isEmpty()){
+        return;
+    }
+
+    m_layout_before_preview_only.clear();
+    m_preview->show_note({});
+
+    const QSignalBlocker block(m_actions->act_preview_only);
+    m_actions->act_preview_only->setChecked(false);
+}
+
+void MainWindow::on_reset_layout(){
+    drop_preview_only();
+    apply_default_layout();
 }
 
 bool MainWindow::open_project_file(const QString& project_file_path){
@@ -1234,6 +1331,7 @@ void MainWindow::update_mute_button(){
 void MainWindow::attach_editor(ScriptEditor* editor){
     m_editor = editor;
     m_dock_code->setWidget(editor);
+    editor->setMinimumSize(1, 1);       // no minimum width
 
     connect(editor, &ScriptEditor::modified_changed, this, &MainWindow::update_window_title);
     connect(editor, &ScriptEditor::save_requested, this, &MainWindow::on_save_project);

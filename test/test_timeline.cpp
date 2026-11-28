@@ -644,9 +644,11 @@ class TestTimelineView : public QObject {
             view->setCompact(true);
             QCOMPARE(changed.count(), 1);
             QVERIFY(view->compactAction()->isChecked());
-            QCOMPARE(view->minimumSizeHint().height(), TimelineView::compact_height);
+            // Only the view changes; the panel keeps its size.
+            QCOMPARE(view->size(), QSize(900, 400));
 
-            view->resize(900, TimelineView::compact_height);
+            constexpr int strip_height = 70;
+            view->resize(900, strip_height);
             view->setPlayheadMs(2000);
             const QImage image = view->grab().toImage();
 
@@ -654,7 +656,7 @@ class TestTimelineView : public QObject {
             // Along the bottom of the ticks: white beats and red 1/2 ticks.
             int white = 0, red = 0;
             for(int x = 0; x < image.width(); ++x){
-                const QColor c = image.pixelColor(x, TimelineView::compact_height - footer_height - 2);
+                const QColor c = image.pixelColor(x, strip_height - footer_height - 2);
                 white += c.red() > 200 && c.green() > 200 && c.blue() > 200;
                 red += c.red() > 180 && c.green() < 80 && c.blue() < 80;
             }
@@ -689,9 +691,24 @@ class TestTimelineView : public QObject {
             QCOMPARE(changed.count(), 2);
         }
 
+        void it_can_be_squeezed_to_nothing(){
+            TimelineView view;
+            QCOMPARE(view.minimumSizeHint(), QSize(0, 0));
+
+            // Painting any size is safe, rows or not.
+            const scene sc = sample_scene();
+            view.setScene(&sc);
+            for(const QSize size : {QSize(1, 1), QSize(300, 10), QSize(900, 30)}){
+                view.resize(size);
+                view.grab();
+                view.setCompact(!view.isCompact());
+                view.grab();
+            }
+        }
+
         void the_compact_strip_shows_the_hint(){
             TimelineView view;
-            view.resize(900, TimelineView::compact_height);
+            view.resize(900, 70);
             view.setCompact(true);
             view.show();
             const QImage without = view.grab().toImage();

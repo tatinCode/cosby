@@ -29,6 +29,10 @@ public:
     QAction* act_play_pause = nullptr;
     QAction* act_stop = nullptr;
 
+    //view tab (the panel toggles are made by MainWindow, next to its docks)
+    QAction* act_preview_only = nullptr;
+    QAction* act_reset_layout = nullptr;
+
     //project flow
     QAction* on_new_project = nullptr;
 

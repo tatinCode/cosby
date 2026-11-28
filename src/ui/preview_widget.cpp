@@ -6,6 +6,7 @@
 
 #include <QPainter>
 #include <QDir>
+#include <QVariantAnimation>
 
 #include <algorithm>
 #include <cmath>
@@ -28,6 +29,31 @@ void PreviewWidget::set_placeholder_background(const QString& path){
     // Always reloaded: a beatmap update can replace the file under the same name.
     m_placeholder = path.isEmpty() ? QPixmap() : QPixmap(path);
     m_placeholder_scaled = QPixmap();
+    update();
+}
+
+void PreviewWidget::show_note(const QString& text, int duration_ms){
+    if(!m_note_fade){
+        m_note_fade = new QVariantAnimation(this);
+        m_note_fade->setStartValue(1.0);
+        m_note_fade->setKeyValueAt(0.8, 1.0);   // there for most of it, then a quick fade
+        m_note_fade->setEndValue(0.0);
+
+        connect(m_note_fade, &QVariantAnimation::valueChanged, this, [this](const QVariant& value){
+            m_note_opacity = value.toDouble();
+            update();
+        });
+    }
+
+    m_note_fade->stop();
+    m_note = text;
+    m_note_opacity = text.isEmpty() ? 0.0 : 1.0;
+
+    if(!text.isEmpty()){
+        m_note_fade->setDuration(std::max(1, duration_ms));
+        m_note_fade->start();
+    }
+
     update();
 }
 
@@ -59,7 +85,6 @@ void PreviewWidget::paintEvent(QPaintEvent*){
     p.fillRect(rect(), QColor(18, 18, 22));
 
     const QRectF screen = playfield_rect();
-    const double scale = screen.height() / playfield_height;
 
     p.fillRect(screen, Qt::black);
     p.setClipRect(screen);
@@ -69,9 +94,15 @@ void PreviewWidget::paintEvent(QPaintEvent*){
         draw_placeholder(p, screen);
     }
 
-    if(!m_has_scene){
-        return;
+    if(m_has_scene){
+        draw_storyboard(p, screen);
     }
+
+    draw_note(p);
+}
+
+void PreviewWidget::draw_storyboard(QPainter& p, const QRectF& screen){
+    const double scale = screen.height() / playfield_height;
 
     p.save();
     p.translate(screen.left() - widescreen_left * scale, screen.top());
@@ -92,6 +123,30 @@ void PreviewWidget::paintEvent(QPaintEvent*){
         p.drawText(screen.adjusted(8, 0, -8, -6), Qt::AlignBottom | Qt::AlignLeft,
                 tr("No project open: images can't be loaded"));
     }
+}
+
+void PreviewWidget::draw_note(QPainter& p){
+    if(m_note_opacity <= 0.0 || m_note.isEmpty()){
+        return;
+    }
+
+    p.save();
+    p.setClipping(false);
+    p.setRenderHint(QPainter::Antialiasing);
+
+    constexpr int margin = 10;
+    constexpr int padding = 8;
+    const QRect text = p.fontMetrics().boundingRect(m_note);
+    const QRectF box(width() - margin - text.width() - 2 * padding, margin,
+            text.width() + 2 * padding, text.height() + padding);
+
+    p.setOpacity(m_note_opacity);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 150));
+    p.drawRoundedRect(box, 4, 4);
+    p.setPen(QColor(255, 255, 255, 190));
+    p.drawText(box, Qt::AlignCenter, m_note);
+    p.restore();
 }
 
 void PreviewWidget::draw_placeholder(QPainter& p, const QRectF& screen){

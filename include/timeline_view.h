@@ -33,10 +33,8 @@ class TimelineView : public QWidget {
 
 public:
     explicit TimelineView(QWidget* parent = nullptr);
-    // The compact timeline's height, time bar included.
-    static constexpr int compact_height = 70;
-
-    QSize minimumSizeHint() const override { return { 400, m_compact ? compact_height : 180 }; }
+    // No minimum: the panel can be squeezed as far as the user likes.
+    QSize minimumSizeHint() const override { return { 0, 0 }; }
 
     void setCompact(bool compact);
     bool isCompact() const { return m_compact; }

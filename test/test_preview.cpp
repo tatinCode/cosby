@@ -119,6 +119,37 @@ class TestPreviewWidget : public QObject{
             preview->set_placeholder_background({});     // project closed or no background
             QCOMPARE(pixel(*preview, 427, 240), QColor(Qt::black));
         }
+
+        void a_note_shows_in_the_corner_and_fades_out(){
+            auto preview = make_preview();
+            const QImage before = preview->grab().toImage();
+
+            preview->show_note("Preview only: Ctrl+Shift+F to show the panels", 200);
+            QVERIFY(preview->has_note());
+            const QImage with = preview->grab().toImage();
+
+            // Only the top-right corner changed.
+            bool changed = false;
+            for(int y = 0; y < with.height(); ++y){
+                for(int x = 0; x < with.width(); ++x){
+                    if(with.pixelColor(x, y) != before.pixelColor(x, y)){
+                        QVERIFY2(x > with.width() / 3 && y < 60, qPrintable(QString("changed at %1,%2").arg(x).arg(y)));
+                        changed = true;
+                    }
+                }
+            }
+            QVERIFY(changed);
+
+            // Gone by itself.
+            QTRY_VERIFY_WITH_TIMEOUT(!preview->has_note(), 2000);
+            QCOMPARE(preview->grab().toImage(), before);
+
+            // Empty text removes it at once.
+            preview->show_note("again", 10000);
+            preview->show_note({});
+            QVERIFY(!preview->has_note());
+            QCOMPARE(preview->grab().toImage(), before);
+        }
 };
 
 COSBY_TEST(TestPreviewWidget)
