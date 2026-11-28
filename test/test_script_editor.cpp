@@ -143,6 +143,18 @@ class TestScriptEditor : public QObject {
             QVERIFY(editor.text_edit()->extraSelections().isEmpty());
         }
 
+        void warnings_are_marked_differently_from_errors(){
+            PlainScriptEditor editor;
+            editor.set_text("one\ntwo\n");
+
+            editor.show_errors({{1, 0, "bad"}, {2, 0, "a.png: image not found", true}});
+
+            const auto selections = editor.text_edit()->extraSelections();
+            QCOMPARE(selections.size(), 2);
+            QCOMPARE(selections[1].format.toolTip(), QString("a.png: image not found"));
+            QVERIFY(selections[0].format.background() != selections[1].format.background());
+        }
+
         void go_to_line_moves_cursor(){
             PlainScriptEditor editor;
             editor.set_text("one\ntwo\nthree\n");

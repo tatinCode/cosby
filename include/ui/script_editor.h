@@ -6,10 +6,13 @@
 
 #include <functional>
 
+// A mark on a script line: an error that stopped the run, or a warning
+// (the run worked, but e.g. an image it uses wasn't found).
 struct ScriptError {
     int line = 0;       // 1-based
     int column = 0;     // 1-based, 0 marks the whole line
     QString message;
+    bool warning = false;
 };
 
 // The script editor as MainWindow sees it. Implementations: PlainScriptEditor
@@ -41,7 +44,7 @@ class ScriptEditor : public QWidget {
         // Calls `done` once text() is current. May be called synchronously.
         virtual void sync(std::function<void()> done);
 
-        // Highlights errors; an empty list clears them.
+        // Highlights errors (red) and warnings (yellow); an empty list clears them.
         virtual void show_errors(const QList<ScriptError>& errors) = 0;
         virtual void go_to_line(int line, int column = 1) = 0;
 

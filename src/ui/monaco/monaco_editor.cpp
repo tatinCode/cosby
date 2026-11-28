@@ -361,6 +361,7 @@ void MonacoEditor::push_errors(){
                 {"line", error.line},
                 {"column", error.column},
                 {"message", error.message},
+                {"warning", error.warning},
                 });
     }
 

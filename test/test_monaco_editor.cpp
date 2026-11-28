@@ -204,6 +204,22 @@ class TestMonacoEditor : public QObject {
                     js_timeout_ms);
         }
 
+        void warnings_become_yellow_markers(){
+            m_editor->set_text("one\ntwo\nthree\n");
+            QTRY_COMPARE_WITH_TIMEOUT(page_text(*m_editor), QString("one\ntwo\nthree\n"), js_timeout_ms);
+
+            m_editor->show_errors({{1, 0, "broken"}, {3, 0, "a.png: image not found", true}});
+
+            QTRY_COMPARE_WITH_TIMEOUT(
+                    eval(*m_editor, "monaco.editor.getModelMarkers({owner: 'cosby'})"
+                                    ".map(m => m.startLineNumber + ':' + (m.severity === monaco.MarkerSeverity.Warning"
+                                    " ? 'warning' : m.severity === monaco.MarkerSeverity.Error ? 'error' : '?')).join('|')").toString(),
+                    QString("1:error|3:warning"),
+                    js_timeout_ms);
+
+            m_editor->show_errors({});
+        }
+
         void go_to_line_moves_cursor(){
             m_editor->set_text("one\ntwo\nthree\n");
             QTRY_COMPARE_WITH_TIMEOUT(page_text(*m_editor), QString("one\ntwo\nthree\n"), js_timeout_ms);

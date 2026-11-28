@@ -27,42 +27,66 @@ public:
                 : bridge_(bridge), index_(index), generation_(generation),
                   group_(group), group_index_(group_index) {}
 
-        Q_INVOKABLE js_sprite_proxy *fade(const QString &easing, int t0, int t1, double a0, double a1);
-        Q_INVOKABLE js_sprite_proxy *move(const QString &easing, int t0, int t1,
-                                          double x0, double y0, double x1, double y1);
-        Q_INVOKABLE js_sprite_proxy *scale(const QString &easing, int t0, int t1,
-                                           double s0, double s1);
-        Q_INVOKABLE js_sprite_proxy *rotate(const QString &easing, int t0, int t1,
-                                            double r0, double r1);
-        Q_INVOKABLE js_sprite_proxy *color(const QString &easing, int t0, int t1,
-                                           double r, double g, double b);
+        // Every argument arrives as a raw JS value and is checked here, so a
+        // mistake like "1000" or undefined for a time is an error instead of
+        // a silent 0. The defaults let a call with missing arguments reach
+        // these checks rather than failing in Qt with a generic message.
 
-        Q_INVOKABLE js_sprite_proxy *fade(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *move(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *scale(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *rotate(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *color(const QJSValue &opts);
+        // fade, scale and rotate: (options) or (easing, startTime, endTime, startValue, endValue).
+        Q_INVOKABLE js_sprite_proxy *fade(const QJSValue &a = QJSValue(), const QJSValue &b = QJSValue(),
+                                          const QJSValue &c = QJSValue(), const QJSValue &d = QJSValue(),
+                                          const QJSValue &e = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *scale(const QJSValue &a = QJSValue(), const QJSValue &b = QJSValue(),
+                                           const QJSValue &c = QJSValue(), const QJSValue &d = QJSValue(),
+                                           const QJSValue &e = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *rotate(const QJSValue &a = QJSValue(), const QJSValue &b = QJSValue(),
+                                            const QJSValue &c = QJSValue(), const QJSValue &d = QJSValue(),
+                                            const QJSValue &e = QJSValue());
 
-        Q_INVOKABLE js_sprite_proxy *moveX(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *moveY(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *scaleVec(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *flipH(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *flipV(const QJSValue &opts);
-        Q_INVOKABLE js_sprite_proxy *additive(const QJSValue &opts);
+        // (options) or (easing, startTime, endTime, startX, startY, endX, endY).
+        Q_INVOKABLE js_sprite_proxy *move(const QJSValue &a = QJSValue(), const QJSValue &b = QJSValue(),
+                                          const QJSValue &c = QJSValue(), const QJSValue &d = QJSValue(),
+                                          const QJSValue &e = QJSValue(), const QJSValue &f = QJSValue(),
+                                          const QJSValue &g = QJSValue());
+
+        // (options) or a constant colour: (easing, startTime, endTime, r, g, b).
+        Q_INVOKABLE js_sprite_proxy *color(const QJSValue &a = QJSValue(), const QJSValue &b = QJSValue(),
+                                           const QJSValue &c = QJSValue(), const QJSValue &d = QJSValue(),
+                                           const QJSValue &e = QJSValue(), const QJSValue &f = QJSValue());
+
+        Q_INVOKABLE js_sprite_proxy *moveX(const QJSValue &opts = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *moveY(const QJSValue &opts = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *scaleVec(const QJSValue &opts = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *flipH(const QJSValue &opts = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *flipV(const QJSValue &opts = QJSValue());
+        Q_INVOKABLE js_sprite_proxy *additive(const QJSValue &opts = QJSValue());
 
         // L: body(l) adds commands, timed from `start`, played `count` times.
-        Q_INVOKABLE js_sprite_proxy *loop(int start, int count, const QJSValue &body);
+        Q_INVOKABLE js_sprite_proxy *loop(const QJSValue &start = QJSValue(), const QJSValue &count = QJSValue(),
+                                          const QJSValue &body = QJSValue());
 
         // T: body(t) adds commands played when `trigger` fires between start
-        // and end, timed from that moment. group 0 means none.
-        Q_INVOKABLE js_sprite_proxy *trigger(const QString &trigger, int start, int end,
-                                             const QJSValue &body, int group = 0);
+        // and end, timed from that moment. group 0 (or left out) means none.
+        Q_INVOKABLE js_sprite_proxy *trigger(const QJSValue &trigger = QJSValue(), const QJSValue &start = QJSValue(),
+                                             const QJSValue &end = QJSValue(), const QJSValue &body = QJSValue(),
+                                             const QJSValue &group = QJSValue());
 
 private:
         // The sprite, or nullptr (and a JS exception) if this handle is stale.
         sprite *target();
 
+        // Stores the command, or throws a JS RangeError when its end is
+        // before its start.
         void push(const command &cmd);
+
+        // Parses `easing` into the command and push()es it.
+        js_sprite_proxy *add(command cmd, const QString &easing);
+
+        // fade, scale, rotate (5 args, positional form allowed) and moveX,
+        // moveY (1 arg, the default value comes from the sprite's x or y).
+        js_sprite_proxy *value_command(cmd_t type, double default_value, const QJSValueList &args);
+        // flipH, flipV, additive.
+        js_sprite_proxy *parameter(cmd_t type, const QJSValue &opts);
 
         // Throws a JS TypeError (and returns false) for an unknown easing.
         bool parse(const QString &text, easing_t &out);

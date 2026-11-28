@@ -339,6 +339,200 @@ class TestScriptHost : public QObject {
             }
         }
 
+        void mistakes_name_the_problem(){
+            const struct { const char* call; const char* message; } cases[]{
+                {"SceneApi.sprite('a.png', { layer: 'Foregroud' });",
+                 "TypeError: Unknown layer \"Foregroud\". Did you mean \"Foreground\"? "
+                 "Use one of: Background, Fail, Pass, Foreground, Overlay"},
+                {"SceneApi.sprite('a.png', { layer: 'Top' });",
+                 "TypeError: Unknown layer \"Top\". Use one of: Background, Fail, Pass, Foreground, Overlay"},
+                {"SceneApi.add_sprite('a.png', 'Foreground', 'TopCentre', 0, 0);",
+                 "TypeError: Unknown origin \"TopCentre\". Did you mean \"TopCenter\"? Use one of: TopLeft, "
+                 "TopCenter, TopRight, CenterLeft, Center, CenterRight, BottomLeft, BottomCenter, BottomRight"},
+                {"SceneApi.sprite('a.png').fade({ startTim: 0 });",
+                 "TypeError: fade(options): unknown option \"startTim\". Did you mean \"startTime\"?"},
+                {"SceneApi.sprite('a.png').flipH({ start: 0 });",
+                 "TypeError: flipH(options): unknown option \"start\". Use: startTime, endTime"},
+                {"SceneApi.sprite('a.png').fade({ easing: 'QuadOutt' });",
+                 "TypeError: Unknown easing \"QuadOutt\". Did you mean \"QuadOut\"?"},
+                {"SceneApi.sprite('a.png').move({ startTime: '1000' });",
+                 "TypeError: move(options): startTime must be a number (got \"1000\")"},
+                {"SceneApi.sprite('a.png').scale({ endValue: undefined });",
+                 "TypeError: scale(options): endValue must be a number (got undefined)"},
+                {"SceneApi.sprite('a.png', { position: 320 });",
+                 "TypeError: sprite(path, options): position must be [x, y] (got 320)"},
+                {"SceneApi.sprite('a.png').color({ startValue: [255, 0, 'x'] });",
+                 "TypeError: color(options): startValue must be [r, g, b] of numbers (item 2 is \"x\")"},
+                {"SceneApi.sprite('a.png').rotate({ startTime: 1000, endTime: 500 });",
+                 "RangeError: rotate(): endTime (500) is before startTime (1000)"},
+                {"SceneApi.sprite('a.png').fade('Linear', 0, 1000);",
+                 "TypeError: fade(easing, startTime, endTime, startValue, endValue): "
+                 "startValue must be a number (got undefined)"},
+                {"SceneApi.sprite('a.png').fade();",
+                 "TypeError: fade(options): the options must be an object like { easing: ... } (got undefined)"},
+                {"SceneApi.sprite('a.png').loop('0', 2, l => {});",
+                 "TypeError: loop(start, count, body): start must be a number (got \"0\")"},
+                {"SceneApi.sample(1000, 'a.wav', { layer: 'Pas' });",
+                 "TypeError: Unknown layer \"Pas\". Did you mean \"Pass\"? "
+                 "Use one of: Background, Fail, Pass, Foreground, Overlay"},
+            };
+
+            for(const auto& c : cases){
+                script_host host;
+                const auto error = host.evaluate(QString("\n%1\n").arg(c.call));
+
+                QVERIFY2(error.has_value(), c.call);
+                QCOMPARE(error->message, QString(c.message));
+                QCOMPARE(error->line, 2);
+            }
+        }
+
+        void mistakes_stop_the_script_at_their_line(){
+            for(const char* call : {
+                    // names
+                    "SceneApi.sprite('a.png', { origin: 'Centr' });",
+                    "SceneApi.sprite('a.png', { layer: '' });",
+                    "SceneApi.animation('a.png', { frameCount: 2, frameDelay: 10, layer: 'Foregroud' });",
+                    "SceneApi.sample(0, 'a.wav', { layer: 'Foregroud' });",
+                    "SceneApi.sprite('a.png').trigger('Pasing', 0, 1000, t => {});",
+                    // the sprite's own arguments
+                    "SceneApi.sprite('a.png', { positon: [0, 0] });",
+                    "SceneApi.sprite('a.png', { x: '320' });",
+                    "SceneApi.sprite('a.png', { name: 5 });",
+                    "SceneApi.sprite('a.png', { layer: 0 });",
+                    "SceneApi.sprite('a.png', 'Foreground');",
+                    "SceneApi.sprite('a.png', null);",
+                    "SceneApi.sprite();",
+                    "SceneApi.sprite(undefined, {});",
+                    "SceneApi.add_sprite('a.png', 'Foreground', 'Center', 0);",
+                    "SceneApi.add_sprite('a.png', 'Foreground', 'Center', '0', 0);",
+                    "SceneApi.animation('a.png', { frameCount: 2, frameDelay: 10, frames: 3 });",
+                    "SceneApi.sample(undefined, 'a.wav');",
+                    "SceneApi.sample(0, 'a.wav', { volum: 50 });",
+                    // command options
+                    "SceneApi.sprite('a.png').fade({ startTime: 0, endTim: 1000 });",
+                    "SceneApi.sprite('a.png').fade({ startTime: NaN });",
+                    "SceneApi.sprite('a.png').fade({ startTime: Infinity });",
+                    "SceneApi.sprite('a.png').fade({ startTime: 1e12 });",
+                    "SceneApi.sprite('a.png').fade({ easing: null });",
+                    "SceneApi.sprite('a.png').fade([0, 1000]);",
+                    "SceneApi.sprite('a.png').fade(x => x);",
+                    "SceneApi.sprite('a.png').move({ startPosition: [0] });",
+                    "SceneApi.sprite('a.png').move({ endX: 'left' });",
+                    "SceneApi.sprite('a.png').moveX({ endValue: [1, 2] });",
+                    "SceneApi.sprite('a.png').moveY();",
+                    "SceneApi.sprite('a.png').scaleVec({ startValue: 2 });",
+                    "SceneApi.sprite('a.png').scaleVec({ startValue: [1, 2, 3] });",
+                    "SceneApi.sprite('a.png').color({ startValue: [255, 0] });",
+                    "SceneApi.sprite('a.png').color({ r: '255' });",
+                    "SceneApi.sprite('a.png').flipV({ startTime: false });",
+                    "SceneApi.sprite('a.png').additive(1000);",
+                    // end before start
+                    "SceneApi.sprite('a.png').fade({ startTime: 1000, endTime: 0 });",
+                    "SceneApi.sprite('a.png').move({ startTime: 1000, endTime: 999 });",
+                    "SceneApi.sprite('a.png').scaleVec({ startTime: 10, endTime: 5 });",
+                    "SceneApi.sprite('a.png').color('Linear', 1000, 0, 255, 0, 0);",
+                    "SceneApi.sprite('a.png').loop(0, 2, l => l.fade({ startTime: 500, endTime: 100 }));",
+                    // positional forms
+                    "SceneApi.sprite('a.png').fade('Linear', '0', 1000, 0, 1);",
+                    "SceneApi.sprite('a.png').scale('Linear', 0, 1000, 1);",
+                    "SceneApi.sprite('a.png').rotate(0);",
+                    "SceneApi.sprite('a.png').move('Linear', 0, 1000, 0, 0, 100);",
+                    "SceneApi.sprite('a.png').color('Linear', 0, 1000, 255, 0);",
+                    // loops and triggers
+                    "SceneApi.sprite('a.png').loop(0, '2', l => {});",
+                    "SceneApi.sprite('a.png').loop(0, 2);",
+                    "SceneApi.sprite('a.png').loop();",
+                    "SceneApi.sprite('a.png').trigger('Passing', 0, undefined, t => {});",
+                    "SceneApi.sprite('a.png').trigger(5, 0, 1000, t => {});",
+                    "SceneApi.sprite('a.png').trigger('Passing', 0, 1000, t => {}, '1');"}){
+                script_host host;
+                const auto error = host.evaluate(QString("\n%1\n").arg(call));
+
+                QVERIFY2(error.has_value(), call);
+                QCOMPARE(error->line, 2);
+
+                // Nothing half-made: no command, loop or trigger was stored.
+                for(const sprite& s : host.current_scene().sprites){
+                    QVERIFY2(s.cmds.isEmpty() && s.triggers.isEmpty(), call);
+                    for(const loop_group& l : s.loops){
+                        QVERIFY2(l.cmds.isEmpty(), call);
+                    }
+                }
+                QVERIFY2(host.current_scene().samples.isEmpty(), call);
+            }
+        }
+
+        void correct_scripts_still_run(){
+            script_host host;
+
+            const auto error = host.evaluate(
+                    "const s = SceneApi.sprite('a.png', { layer: 'background', origin: 'Centre', x: 10, y: 20 });\n"
+                    "SceneApi.sprite('b.png', { origin: 'middle' });\n"
+                    "SceneApi.sprite('c.png', { origin: 'CenterCenter', position: [1, 2], name: 'c' });\n"
+                    "SceneApi.add_sprite('d.png', 'OVERLAY', 'bottomright', 0, 0);\n"
+                    "SceneApi.sprite('e.png');\n"
+                    "s.fade({ startTime: 0, endTime: 1000, startValue: 0, endValue: 1, easing: 3 })\n"
+                    "    .fade('QuadOut', 1000, 2000, 1, 0)\n"
+                    "    .move('Linear', 0, 500, 0, 0, 100, 100)\n"
+                    "    .move({ startTime: 0, endTime: 500, startPosition: [0, 0], endX: 10 })\n"
+                    "    .scale('Linear', 0, 500, 1, 2)\n"
+                    "    .rotate({ startTime: 0, endTime: 500, endValue: 3.14 })\n"
+                    "    .color('Linear', 0, 500, 255, 0, 0)\n"
+                    "    .color({ startTime: 0, r: 0, g: 128, b: 255 })\n"
+                    "    .scaleVec({ startTime: 0, endTime: 500, endValue: [2, 1] })\n"
+                    "    .flipH({ startTime: 1000 })\n"
+                    "    .additive({ startTime: 500, endTime: 2000 })\n"
+                    "    .fade({ startTime: 1000.7, endTime: 1000.2 })\n"
+                    "    .loop(0, 2, l => l.fade({ startTime: 0, endTime: 100 }))\n"
+                    "    .trigger('HitSoundClap', 0, 1000, t => t.scale({ startTime: 0, endTime: 100 }))\n"
+                    "    .trigger('Passing', 0, 1000, t => t.fade({ endTime: 10 }), 1);\n"
+                    "SceneApi.sample(0, 'a.wav');\n"
+                    "SceneApi.sample(10, 'b.wav', { layer: 'pass', volume: 50 });\n"
+                    "SceneApi.animation('f.png', { frameCount: 2, frameDelay: 10, loopType: 'loopOnce' });\n");
+
+            QVERIFY2(!error.has_value(), error ? qPrintable(error->message) : "");
+
+            const scene& sc = host.current_scene();
+            QCOMPARE(sc.sprites.size(), qsizetype(6));
+            QCOMPARE(sc.sprites[0].layer, layer_t::background);
+            QCOMPARE(sc.sprites[0].origin, origin_t::center);
+            QCOMPARE(sc.sprites[1].origin, origin_t::center);
+            QCOMPARE(sc.sprites[2].origin, origin_t::center);
+            QCOMPARE(sc.sprites[2].x, 1.0);
+            QCOMPARE(sc.sprites[3].layer, layer_t::overlay);
+            QCOMPARE(sc.sprites[3].origin, origin_t::bottom_right);
+            QCOMPARE(sc.sprites[4].x, 320.0);
+            QCOMPARE(sc.sprites[4].layer, layer_t::foreground);
+            QCOMPARE(sc.sprites[0].cmds.size(), qsizetype(12));
+            QCOMPARE(sc.sprites[0].loops.size(), qsizetype(1));
+            QCOMPARE(sc.sprites[0].triggers.size(), qsizetype(2));
+            QCOMPARE(sc.sprites[0].triggers[1].group, 1);
+            QCOMPARE(sc.samples.size(), qsizetype(2));
+        }
+
+        void leaving_out_end_time_makes_an_instant_command(){
+            script_host host;
+
+            QVERIFY(!host.evaluate(
+                    "SceneApi.sprite('a.png')\n"
+                    "    .fade({ startTime: 1000, startValue: 1, endValue: 1 })\n"
+                    "    .move({ startTime: 500, x: 1, y: 2 })\n"
+                    "    .moveX({ startTime: 200 })\n"
+                    "    .flipH({ startTime: 1000 });\n").has_value());
+
+            const auto& cmds = host.current_scene().sprites.first().cmds;
+            QCOMPARE(cmds.size(), qsizetype(4));
+            QCOMPARE(cmds[0].t0, 1000);
+            QCOMPARE(cmds[0].t1, 1000);
+            QCOMPARE(cmds[1].t1, 500);
+            QCOMPARE(cmds[1].x1, 1.0);
+            QCOMPARE(cmds[2].t1, 200);
+            QCOMPARE(cmds[2].v1, 320.0);    // the sprite's x
+            // flipH/flipV/additive keep 0, which osu! reads as "from startTime on".
+            QCOMPARE(cmds[3].t1, 0);
+        }
+
         void error_line_is_reported(){
             script_host host;
 

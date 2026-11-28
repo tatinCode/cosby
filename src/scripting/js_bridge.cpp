@@ -1,4 +1,6 @@
 #include "scripting/js_bridge.h"
+#include "scripting/js_options.h"
+#include "core/name_hint.h"
 
 #include <cmath>
 
@@ -18,168 +20,194 @@ void js_bridge::begin_run() {
     return &sc_->sprites[index];
 }
 
-QObject *js_bridge::add_sprite(const QString &path, const QString &layer,
-                               const QString &origin, double x, double y, int source_line) {
-    layer_t ly = to_layer(layer);
-    origin_t orr = to_origin(origin);
+namespace {
+    // In osu!'s draw order; the names a message suggests.
+    const QStringList layer_names{
+        QStringLiteral("Background"), QStringLiteral("Fail"), QStringLiteral("Pass"),
+        QStringLiteral("Foreground"), QStringLiteral("Overlay")
+    };
 
-    const qsizetype index = sc_->add_sprite(path, ly, orr, x, y);
+    const QStringList origin_names{
+        QStringLiteral("TopLeft"), QStringLiteral("TopCenter"), QStringLiteral("TopRight"),
+        QStringLiteral("CenterLeft"), QStringLiteral("Center"), QStringLiteral("CenterRight"),
+        QStringLiteral("BottomLeft"), QStringLiteral("BottomCenter"), QStringLiteral("BottomRight")
+    };
+
+    // Also accepted for Center, but not suggested.
+    const QStringList center_aliases{
+        QStringLiteral("Centre"), QStringLiteral("Middle"), QStringLiteral("CenterCenter")
+    };
+
+    const QStringList sprite_keys{
+        QStringLiteral("layer"), QStringLiteral("origin"), QStringLiteral("position"),
+        QStringLiteral("x"), QStringLiteral("y"), QStringLiteral("name")
+    };
+
+    QString unknown_name(const char* what, const QString& name, const QStringList& names){
+        return QStringLiteral("Unknown %1 \"%2\".%3 Use one of: %4").arg(
+                QString::fromLatin1(what), name, did_you_mean(name, names), names.join(QStringLiteral(", ")));
+    }
+}
+
+QObject *js_bridge::add_sprite(const QJSValue &path, const QJSValue &layer, const QJSValue &origin,
+                               const QJSValue &x, const QJSValue &y, int source_line) {
+    js_args a(QStringLiteral("add_sprite(path, layer, origin, x, y)"));
+    const QString path_text = a.text(path, "path");
+    const QString layer_text = a.text(layer, "layer");
+    const QString origin_text = a.text(origin, "origin");
+    const double x_value = a.number(x, "x");
+    const double y_value = a.number(y, "y");
+
+    if (!a.ok()) {
+        eng_->throwError(QJSValue::TypeError, a.error());
+        return nullptr;
+    }
+
+    return create_sprite(path_text, layer_text, origin_text, x_value, y_value, source_line);
+}
+
+QObject *js_bridge::create_sprite(const QString &path, const QString &layer, const QString &origin,
+                                  double x, double y, int source_line) {
+    const std::optional<layer_t> ly = to_layer(layer);
+    const std::optional<origin_t> orr = to_origin(origin);
+
+    if (!ly || !orr) {
+        return nullptr;     // exception pending
+    }
+
+    const qsizetype index = sc_->add_sprite(path, *ly, *orr, x, y);
     sc_->sprites[index].source_line = source_line;
 
     return new js_sprite_proxy(this, index, generation_);
 }
 
-layer_t js_bridge::to_layer(const QString &s)
-{
-    if (s.compare("Background", Qt::CaseInsensitive) == 0) {
-        return layer_t::background;
+std::optional<layer_t> js_bridge::to_layer(const QString &s) {
+    static const layer_t layers[] = {
+        layer_t::background, layer_t::fail, layer_t::pass, layer_t::foreground, layer_t::overlay
+    };
+
+    for (int i = 0; i < layer_names.size(); ++i) {
+        if (s.compare(layer_names.at(i), Qt::CaseInsensitive) == 0) {
+            return layers[i];
+        }
     }
 
-    if (s.compare("Foreground", Qt::CaseInsensitive) == 0) {
-        return layer_t::foreground;
-    }
-
-    if (s.compare("Pass", Qt::CaseInsensitive) == 0) {
-        return layer_t::pass;
-    }
-
-    if (s.compare("Fail", Qt::CaseInsensitive) == 0) {
-        return layer_t::fail;
-    }
-
-    if (s.compare("Overlay", Qt::CaseInsensitive) == 0) {
-        return layer_t::overlay;
-    }
-
-    return layer_t::foreground;
+    eng_->throwError(QJSValue::TypeError, unknown_name("layer", s, layer_names));
+    return std::nullopt;
 }
 
-origin_t js_bridge::to_origin(const QString &s) {
-    if (s.compare("TopLeft", Qt::CaseInsensitive) == 0) {
-        return origin_t::top_left;
-    }
-    if (s.compare("TopCenter", Qt::CaseInsensitive) == 0) {
-        return origin_t::top_center;
-    }
-    if (s.compare("TopRight", Qt::CaseInsensitive) == 0) {
-        return origin_t::top_right;
+std::optional<origin_t> js_bridge::to_origin(const QString &s) {
+    static const origin_t origins[] = {
+        origin_t::top_left, origin_t::top_center, origin_t::top_right,
+        origin_t::center_left, origin_t::center, origin_t::center_right,
+        origin_t::bottom_left, origin_t::bottom_center, origin_t::bottom_right
+    };
+
+    for (int i = 0; i < origin_names.size(); ++i) {
+        if (s.compare(origin_names.at(i), Qt::CaseInsensitive) == 0) {
+            return origins[i];
+        }
     }
 
-    if (s.compare("CenterLeft", Qt::CaseInsensitive) == 0) {
-        return origin_t::center_left;
-    }
-    if (s.compare("Center", Qt::CaseInsensitive) == 0 ||
-            s.compare("Middle", Qt::CaseInsensitive) == 0 ||
-            s.compare("CenterCenter", Qt::CaseInsensitive) == 0 ||
-            s.compare("Centre", Qt::CaseInsensitive) == 0) {
-        return origin_t::center;
-    }
-    if (s.compare("CenterRight", Qt::CaseInsensitive) == 0) {
-        return origin_t::center_right;
+    for (const QString &alias : center_aliases) {
+        if (s.compare(alias, Qt::CaseInsensitive) == 0) {
+            return origin_t::center;
+        }
     }
 
-    if (s.compare("BottomLeft", Qt::CaseInsensitive) == 0) {
-        return origin_t::bottom_left;
-    }
-    if (s.compare("BottomCenter", Qt::CaseInsensitive) == 0) {
-        return origin_t::bottom_center;
-    }
-    if (s.compare("BottomRight", Qt::CaseInsensitive) == 0) {
-        return origin_t::bottom_right;
-    }
-
-    return origin_t::center;
+    eng_->throwError(QJSValue::TypeError, unknown_name("origin", s, origin_names));
+    return std::nullopt;
 }
 
-QObject *js_bridge::sprite(const QString &path, const QJSValue &opts, int source_line) {
-    QString layer = QStringLiteral("Foreground");
-    QString origin = QStringLiteral("Center");
+QObject *js_bridge::sprite(const QJSValue &path, const QJSValue &opts, int source_line) {
+    const QString where = QStringLiteral("sprite(path, options)");
+    js_options o(opts, where, sprite_keys);
+    return sprite_from(where, path, o, source_line);
+}
 
-    double x = 320.0;
-    double y = 240.0;
+QObject *js_bridge::sprite_from(const QString &where, const QJSValue &path, js_options &o, int source_line) {
+    js_args a(where);
+    const QString path_text = a.text(path, "path");
 
-    // parses layer(default: foreground)
-    if (opts.hasProperty("layer")) {
-        layer = opts.property("layer").toString();
+    if (!a.ok()) {
+        eng_->throwError(QJSValue::TypeError, a.error());
+        return nullptr;
     }
 
-    // parses origin(default: center)
-    if (opts.hasProperty("origin")) {
-        origin = opts.property("origin").toString();
+    const QString layer = o.text("layer", QStringLiteral("Foreground"));
+    const QString origin = o.text("origin", QStringLiteral("Center"));
+
+    double position[2]{320.0, 240.0};
+    o.numbers("position", 2, position);
+
+    const double x = o.number("x", position[0]);
+    const double y = o.number("y", position[1]);
+    const QString name = o.text("name", QString());
+
+    if (!o.ok()) {
+        eng_->throwError(QJSValue::TypeError, o.error());
+        return nullptr;
     }
 
-    // parses position(default: [320, 240])
-    if (opts.hasProperty("position")) {
-        QJSValue posArr = opts.property("position");
+    QObject *proxy = create_sprite(path_text, layer, origin, x, y, source_line);
 
-        if (posArr.isArray()) {
-            QJSValue px = posArr.property(0);
-            QJSValue py = posArr.property(1);
-
-            if(px.isNumber()){
-                x = px.toNumber();
-            }
-            if(py.isNumber()){
-                y = py.toNumber();
-            }
-        }
-    }
-
-    if(opts.hasProperty("x")){
-        QJSValue px = opts.property("x");
-        if(px.isNumber()){
-            x = px.toNumber();
-        }
-    }
-
-    if(opts.hasProperty("y")){
-        QJSValue py = opts.property("y");
-        if(py.isNumber()){
-            y = py.toNumber();
-        }
-    }
-
-    QObject *proxy = add_sprite(path, layer, origin, x, y, source_line);
-
-    if (opts.hasProperty("name")) {
-        sc_->sprites.back().name = opts.property("name").toString();
+    if (proxy) {
+        sc_->sprites.back().name = name;
     }
 
     return proxy;
 }
 
-QObject *js_bridge::animation(const QString &path, const QJSValue &opts, int source_line) {
+QObject *js_bridge::animation(const QJSValue &path, const QJSValue &opts, int source_line) {
+    const QString where = QStringLiteral("animation(path, options)");
+    js_options o(opts, where, sprite_keys + QStringList{
+            QStringLiteral("frameCount"), QStringLiteral("frameDelay"), QStringLiteral("loopType")});
+
+    if (!o.ok()) {
+        eng_->throwError(QJSValue::TypeError, o.error());
+        return nullptr;
+    }
+
     const QJSValue count = opts.property("frameCount");
     const QJSValue delay = opts.property("frameDelay");
 
     if (!count.isNumber() || count.toNumber() < 1 || count.toNumber() != std::floor(count.toNumber())) {
         eng_->throwError(QJSValue::RangeError,
-                         QStringLiteral("animation(path, options): options.frameCount must be a whole number of frames, at least 1"));
+                         QStringLiteral("%1: frameCount must be a whole number of frames, at least 1 (got %2)")
+                                 .arg(where, js_args::describe(count)));
         return nullptr;
     }
 
-    if (!delay.isNumber() || !(delay.toNumber() > 0)) {
+    if (!delay.isNumber() || !(delay.toNumber() > 0) || !std::isfinite(delay.toNumber())) {
         eng_->throwError(QJSValue::RangeError,
-                         QStringLiteral("animation(path, options): options.frameDelay must be the milliseconds per frame, above 0"));
+                         QStringLiteral("%1: frameDelay must be the milliseconds per frame, above 0 (got %2)")
+                                 .arg(where, js_args::describe(delay)));
         return nullptr;
     }
 
     animation_loop_t loop_type = animation_loop_t::loop_forever;
+    const QString text = o.text("loopType", QStringLiteral("LoopForever"));
 
-    if (opts.hasProperty("loopType")) {
-        const QString text = opts.property("loopType").toString();
-
-        if (text.compare("LoopOnce", Qt::CaseInsensitive) == 0) {
-            loop_type = animation_loop_t::loop_once;
-        }
-        else if (text.compare("LoopForever", Qt::CaseInsensitive) != 0) {
-            eng_->throwError(QJSValue::TypeError,
-                             QStringLiteral("Unknown loopType \"%1\". Use \"LoopForever\" or \"LoopOnce\"").arg(text));
-            return nullptr;
-        }
+    if (!o.ok()) {
+        eng_->throwError(QJSValue::TypeError, o.error());
+        return nullptr;
     }
 
-    QObject *proxy = sprite(path, opts, source_line);
+    if (text.compare("LoopOnce", Qt::CaseInsensitive) == 0) {
+        loop_type = animation_loop_t::loop_once;
+    }
+    else if (text.compare("LoopForever", Qt::CaseInsensitive) != 0) {
+        eng_->throwError(QJSValue::TypeError,
+                         QStringLiteral("Unknown loopType \"%1\".%2 Use \"LoopForever\" or \"LoopOnce\"").arg(
+                                 text, did_you_mean(text, {QStringLiteral("LoopForever"), QStringLiteral("LoopOnce")})));
+        return nullptr;
+    }
+
+    QObject *proxy = sprite_from(where, path, o, source_line);
+
+    if (!proxy) {
+        return nullptr;
+    }
 
     ::sprite &s = sc_->sprites.back();
     s.frame_count = count.toInt();
@@ -189,35 +217,52 @@ QObject *js_bridge::animation(const QString &path, const QJSValue &opts, int sou
     return proxy;
 }
 
-void js_bridge::sample(int time, const QString &path, const QJSValue &opts, int source_line) {
+void js_bridge::sample(const QJSValue &time, const QJSValue &path, const QJSValue &opts, int source_line) {
+    const QString where = QStringLiteral("sample(time, path, options)");
+
+    js_args a(where);
+    const int time_value = a.integer(time, "time");
+    const QString path_text = a.text(path, "path");
+
+    if (!a.ok()) {
+        eng_->throwError(QJSValue::TypeError, a.error());
+        return;
+    }
+
+    js_options o(opts, where, {QStringLiteral("layer"), QStringLiteral("volume")});
+
+    const QString layer = o.text("layer", QStringLiteral("Foreground"));
+    const double volume = o.number("volume", 100);
+
+    if (!o.ok()) {
+        eng_->throwError(QJSValue::TypeError, o.error());
+        return;
+    }
+
+    if (layer.compare("Overlay", Qt::CaseInsensitive) == 0) {
+        eng_->throwError(QJSValue::RangeError,
+                         QStringLiteral("Samples can't use the Overlay layer; use Background, Fail, Pass or Foreground"));
+        return;
+    }
+
+    const std::optional<layer_t> ly = to_layer(layer);
+
+    if (!ly) {
+        return;
+    }
+
+    if (volume < 0 || volume > 100) {
+        eng_->throwError(QJSValue::RangeError,
+                         QStringLiteral("%1: volume must be 0-100 (got %2)").arg(where).arg(volume));
+        return;
+    }
+
     ::sample smp;
-    smp.time = time;
-    smp.path = path;
+    smp.time = time_value;
+    smp.path = path_text;
     smp.source_line = source_line;
-
-    if (opts.hasProperty("layer")) {
-        const QString layer = opts.property("layer").toString();
-
-        if (layer.compare("Overlay", Qt::CaseInsensitive) == 0) {
-            eng_->throwError(QJSValue::RangeError,
-                             QStringLiteral("Samples can't use the Overlay layer; use Background, Fail, Pass or Foreground"));
-            return;
-        }
-
-        smp.layer = to_layer(layer);
-    }
-
-    if (opts.hasProperty("volume")) {
-        const QJSValue volume = opts.property("volume");
-
-        if (!volume.isNumber() || volume.toNumber() < 0 || volume.toNumber() > 100) {
-            eng_->throwError(QJSValue::RangeError,
-                             QStringLiteral("sample(time, path, options): options.volume must be 0-100"));
-            return;
-        }
-
-        smp.volume = qRound(volume.toNumber());
-    }
+    smp.layer = *ly;
+    smp.volume = qRound(volume);
 
     sc_->samples.push_back(smp);
 }

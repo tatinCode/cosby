@@ -689,7 +689,6 @@ bool MainWindow::run_script(){
         return false;
     }
 
-    m_editor->show_errors({});
     m_last_run = ScriptRun::succeeded;
     update_timeline_hint();
 
@@ -706,6 +705,9 @@ bool MainWindow::run_script(){
     show_info(result);
 
     // Every run, so a fixed file name or a newly added image shows up at once.
+    // Missing files also get a yellow mark on the line that uses them.
+    QList<ScriptError> warnings;
+
     if(m_project_root.isEmpty()){
         if(!sc.sprites.isEmpty() || !sc.samples.isEmpty()){
             append_output(tr("No project open: images can't be loaded, so the preview shows "
@@ -716,8 +718,14 @@ bool MainWindow::run_script(){
     else{
         for(const asset_problem& problem : check_assets(sc, asset_folders(m_project_root, m_asset_root))){
             append_output(problem.message, OutputKind::warning, problem.source_line);
+
+            if(problem.source_line > 0){
+                warnings.append(ScriptError{problem.source_line, 0, problem.message, true});
+            }
         }
     }
+
+    m_editor->show_errors(warnings);
 
     return true;
 }

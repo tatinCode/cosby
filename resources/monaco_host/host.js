@@ -80,7 +80,7 @@
             var end = Math.max(start + 1, model.getLineMaxColumn(line));
 
             return {
-                severity: monaco.MarkerSeverity.Error,
+                severity: error.warning ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Error,
                 message: String(error.message),
                 startLineNumber: line,
                 startColumn: start,
